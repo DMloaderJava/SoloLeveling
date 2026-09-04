@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Что изменилось</title>
+  <link rel="stylesheet" href="assets/docs.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+<main class="content">
+
+  <h1>Что изменилось</h1>
+  <p class="lead">Полный разбор аудита репозитория: каждая найденная проблема, её последствия, внесённое
+    исправление и тест, который не даёт ей вернуться. Это же содержимое лежит в основе
+    <a href="https://github.com/DMloaderJava/SoloLeveling/pull/1">pull request #1</a>.</p>
+
+  <h2>Отправная точка</h2>
+
+  <p>Репозиторий состоял из одиннадцати файлов и одного коммита. Приложение выглядело законченным, но:</p>
+
+  <div class="grid">
+    <div class="card">
+      <div class="card__title">Не запускалось</div>
+      <p><code>server.js</code> требовал <code>express</code> и <code>body-parser</code>, а
+        <code>package.json</code> в проекте не было вовсе.</p>
+    </div>
+    <div class="card">
+      <div class="card__title">Хранило пароли открытым текстом</div>
+      <p>И на сервере в <code>users.json</code>, и в браузере в <code>localStorage</code>.</p>
+    </div>
+    <div class="card">
+      <div class="card__title">Считало опыт неверно</div>
+      <p>Крупные награды «съедались»: 20 XP давали один уровень вместо четырёх.</p>
+    </div>
+    <div class="card">
+      <div class="card__title">Содержало мёртвый код</div>
+      <p>Бэкенд, к которому никто не обращался; три недостижимые страницы; обработчик несуществующего элемента.</p>
+    </div>
+  </div>
+
+  <h2>Инфраструктура</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Проблема</th><th>Последствие</th><th>Исправление</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Нет <code>package.json</code></td>
+          <td><code>npm install</code> невозможен, <code>node server.js</code> падает с <code>Cannot find module 'express'</code></td>
+          <td>Добавлены <code>package.json</code> и <code>package-lock.json</code> со скриптами <code>start</code>, <code>dev</code>, <code>test</code></td>
+        </tr>
+        <tr>
+          <td>Нет <code>.gitignore</code></td>
+          <td>Риск закоммитить <code>node_modules</code> и секреты</td>
+          <td>Игнорируются <code>node_modules/</code>, <code>users.json</code>, <code>.env</code>, служебные файлы ОС и редакторов</td>
+        </tr>
+        <tr>
+          <td><code>users.json</code> в Git</td>
+          <td>Учётные записи с паролями попадали в историю репозитория</td>
+          <td>Файл удалён из индекса и внесён в <code>.gitignore</code>; сервер создаёт его сам</td>
+        </tr>
+        <tr>
+          <td>README от другого проекта</td>
+          <td>Файл содержал две строки: «# Audio / AudioRecoder»</td>
+          <td>Полностью переписан: возможности, запуск, переменные окружения, API, структура</td>
+        </tr>
+        <tr>
+          <td>Нет лицензии, тестов, CI</td>
+          <td>Непонятны условия использования, любая правка проверялась вручную</td>
+          <td>Добавлены <code>LICENSE</code> (MIT), 19 тестов и GitHub Actions на трёх версиях Node</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Безопасность</h2>
+
+  <h3>Пароли в открытом виде</h3>
+
+  <pre data-lang="js" data-file="было — server.js">const newUser = {
+  username,
+  password,                       // ← пароль как есть
+  profile: { level: 1, xp: 0, skills: [] }
+};
+users.push(newUser);
+writeUsers(users);
+
+return res.json({ success: true, message: "Регистрация успешна", user: newUser });
+//                                                              ↑ пароль уходит клиенту</pre>
+
+  <pre data-lang="js" data-file="стало">const user = {
+  username,
+  passwordHash: await bcrypt.hash(req.body.password, BCRYPT_ROUNDS),
+  profile: createProfile(),
+  createdAt: new Date().toISOString(),
+};
+
+return res.status(201).json({ success: true, message: 'Регистрация успешна', user: publicUser(user) });
+//                                                     ↑ только username, profile, createdAt</pre>
+
+  <p>Тесты: <span class="badge badge--muted">server #2</span> (нет пароля в ответе),
+    <span class="badge badge--muted">server #3</span> (на диске только хеш формата <code>$2a$</code>).</p>
+
+  <h3>Регистрация вместо входа</h3>
+
+  <p>Единственный эндпоинт <code>/register</code> при совпадении логина и пароля авторизовывал
+    пользователя, а при несовпадении отвечал 400 с текстом «Пользователь с таким логином уже существует,
+    пароль не совпадает!» — это прямое подтверждение существования учётки. Теперь есть раздельные
+    <code>/api/register</code> (409 при занятом логине) и <code>/api/login</code> (одинаковый 401 для
+    любой неудачи). Старый путь сохранён как алиас ради совместимости.</p>
+
+  <h3>Полное отсутствие валидации</h3>
+
+  <p>Прежний код принимал что угодно, включая <code>{}</code> и вложенные объекты вместо строк, и писал
+    это в файл. Добавлены: проверка типов, регулярное выражение для логина, границы длины пароля,
+    лимит тела запроса 16 КБ и ограничение частоты — 20 попыток за 15 минут.
+    Тест <span class="badge badge--muted">server #5</span>.</p>
+
+  <h3>XSS на странице профиля</h3>
+
+  <pre data-lang="js" data-file="было">userInfoDiv.innerHTML = `
+  &lt;p&gt;&lt;strong&gt;Логин:&lt;/strong&gt; ${userData.username}&lt;/p&gt;
+`;</pre>
+
+  <p>Логин <code>&lt;img src=x onerror=…&gt;</code> исполнялся как разметка. Сейчас все значения
+    выводятся через <code>textContent</code> и <code>createTextNode</code>; тест
+    <span class="badge badge--muted">pages #9</span> запрещает возврат <code>innerHTML</code> в этот файл.</p>
+
+  <h3>Падение сервера на пустом файле</h3>
+
+  <pre data-lang="js" data-file="было">function readUsers() {
+  if (!fs.existsSync(usersFilePath)) {
+    fs.writeFileSync(usersFilePath, JSON.stringify([]));
+  }
+  const data = fs.readFileSync(usersFilePath);
+  return JSON.parse(data);      // ← SyntaxError на пустом файле
+}</pre>
+
+  <p>В репозитории лежал пустой <code>users.json</code>, поэтому первый же запрос ронял процесс.
+    Новая версия обрабатывает отсутствие файла, пустоту, не-массив и битый JSON, а запись стала
+    атомарной. Тест <span class="badge badge--muted">server #1</span>.</p>
+
+  <h2>Логика приложения</h2>
+
+  <h3>Потерянные уровни</h3>
+
+  <pre data-lang="js" data-file="было">function checkLevelUp(skill) {
+  if (skill.exp &gt;= 5) {        // однократно!
+    skill.exp -= 5;
+    skill.level++;
+  }
+}</pre>
+
+  <pre data-lang="js" data-file="стало (skills-store.js)">function applyLevelUps(skill) {
+  let gained = 0;
+  while (skill.exp &gt;= EXP_PER_LEVEL) {
+    skill.exp -= EXP_PER_LEVEL;
+    skill.level += 1;
+    gained += 1;
+  }
+  return gained;
+}</pre>
+
+  <p>Награда 22 XP: было «уровень 2, опыт 17» с переполненной шкалой, стало «уровень 5, опыт 2».
+    Тест <span class="badge badge--muted">pages #2</span>.</p>
+
+  <h3>Мёртвый обработчик звука</h3>
+
+  <pre data-lang="js" data-file="было — выполнялось при каждом наведении">sq.onmouseenter = () =&gt; {
+  const sound = document.getElementById("guiSound");   // такого элемента в разметке нет
+  if (sound) {
+    sound.currentTime = 0;
+    sound.play().catch(e =&gt; console.log("Автовоспроизведение звука заблокировано"));
+  }
+};</pre>
+
+  <p>Код удалён; тест <span class="badge badge--muted">pages #1</span> проверяет отсутствие
+    <code>#guiSound</code>.</p>
+
+  <h3>Фальшивый прогресс-бар</h3>
+
+  <pre data-lang="js" data-file="было">if (!task.completed &amp;&amp; task.duration) {          // поле duration никогда не создавалось
+  progressFill.style.width = "50%";              // Placeholder for actual progress
+}</pre>
+
+  <p>Полоса показывала 50% «на глаз». Теперь она отражает реальный статус: 0% для активной задачи,
+    100% зелёным для выполненной.</p>
+
+  <h3>Заглушка вместо менеджера навыков</h3>
+
+  <p>Кнопка «Мои навыки» была видимой и рабочей на вид, но вызывала
+    <code>showNotification("Менеджер навыков скоро будет доступен!")</code>. Реализовано полноценное
+    окно со списком, выбором и удалением навыков; дефолтный защищён от удаления.
+    Тест <span class="badge badge--muted">pages #4</span>.</p>
+
+  <h3>Теряющийся прогресс тренажёра</h3>
+
+  <p>Сохранялись только <code>xp</code> и <code>currentLevel</code>, причём последний рос лишь в редкой
+    ветке кода. После перезагрузки пройденные уровни «забывались». Добавлено поле
+    <code>completedLevels</code>, состояние узлов строится по нему.
+    Тест <span class="badge badge--muted">pages #8</span>.</p>
+
+  <h3>Сравнение ответа в тренажёре</h3>
+
+  <pre data-lang="js" data-file="было">const userAnswer = document.getElementById('numberInput').value.toUpperCase().trim();
+const isWordLevel = activeNode.getAttribute('data-type') === 'word';   // объявлено и не использовано
+const correctAnswer = currentNumber.toString();
+if (userAnswer === correctAnswer) { … }</pre>
+
+  <p>Регистр приводился всегда, включая числовые уровни, а признак «слово или число» не влиял ни на что.
+    Теперь слова сравниваются без учёта регистра, числа — как есть.
+    Тест <span class="badge badge--muted">pages #7</span>.</p>
+
+  <h3>Разорванная связь между страницами</h3>
+
+  <p>Тренажёр писал опыт в <code>memoryTrainerData</code>, главная читала <code>levelUpData</code> —
+    заработанный XP не отражался в навыках. Появился общий модуль
+    <a href="skills-store.html"><code>assets/skills-store.js</code></a>, тренажёр вызывает
+    <code>SkillsStore.awardXp()</code>. Тест <span class="badge badge--muted">pages #6</span>.</p>
+
+  <h2>Структура и оформление</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Было</th><th>Стало</th><th>Причина</th></tr></thead>
+      <tbody>
+        <tr><td><code>202654381.png</code></td><td><code>assets/hero.png</code></td><td>Осмысленное имя и отдельная папка для ресурсов</td></tr>
+        <tr><td>Дублирующийся CSS в двух файлах</td><td><code>assets/auth.css</code></td><td>Один источник стилей для входа и профиля</td></tr>
+        <tr><td><code>page3.html</code>, <code>page4.html</code></td><td>удалены</td><td>Недостижимый прототип: «страница таймера» без таймера, секретный код <code>8532</code> написан прямо в разметке рядом с полем ввода</td></tr>
+        <tr><td><code>napravleniye.html</code></td><td>удалён</td><td>Редирект на <code>hikmet2002.github.io</code> — чужой аккаунт, к репозиторию отношения не имеет</td></tr>
+        <tr><td>Ссылки <code>href="#"</code> в меню</td><td>Реальные адреса</td><td>«Главная» ведёт на главную, «Достижения» и «Статистика» заменены на «Профиль»</td></tr>
+        <tr><td><code>regBtn.textContent = "Мой профиль"</code></td><td>Замена текста в <code>&lt;span id="regBtnLabel"&gt;</code></td><td>Прежний код стирал иконку Font Awesome внутри ссылки</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note">
+    <div class="note__title">Удалённое можно вернуть</div>
+    <p>Файлы удалены коммитом, а не стёрты: <code>git show 60f379b:page3.html</code> покажет исходное
+      содержимое, <code>git checkout 60f379b -- page3.html</code> вернёт файл в рабочую копию.</p>
+  </div>
+
+  <h2>Итоги в цифрах</h2>
+
+  <div class="stat-row">
+    <div class="stat"><b>20</b><span>изменённых файлов</span></div>
+    <div class="stat"><b>+2845</b><span>добавленных строк</span></div>
+    <div class="stat"><b>−492</b><span>удалённых строк</span></div>
+    <div class="stat"><b>19</b><span>новых тестов</span></div>
+    <div class="stat"><b>0</b><span>падающих тестов</span></div>
+  </div>
+
+  <h2>Что осталось за рамками</h2>
+
+  <ul>
+    <li><b>Синхронизация игрового прогресса с сервером.</b> Эндпоинт <code>PUT /api/me/profile</code>
+      готов и протестирован, но интерфейс пока пишет только в <code>localStorage</code>.</li>
+    <li><b>Локализация CDN-ресурсов и включение CSP.</b> Требует выноса инлайновых скриптов в отдельные файлы.</li>
+    <li><b>Переход на СУБД и Redis для сессий.</b> Нужен, если приложение выйдет за рамки одного инстанса.</li>
+    <li><b>Точный таймер.</b> Сейчас он считает тики <code>setInterval</code>, а не реальное время.</li>
+    <li><b>Достижения и статистика.</b> Пункты меню убраны, потому что функциональности за ними не было.</li>
+  </ul>
+
+</main>
+<script src="assets/docs.js"></script>
+</body>
+</html>

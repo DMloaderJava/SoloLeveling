@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>index.html — главная страница</title>
+  <link rel="stylesheet" href="assets/docs.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+<main class="content">
+
+  <h1>index.html — главная страница</h1>
+  <p class="lead">1050 строк: неоновая разметка на Tailwind, три функциональных блока (навыки, задания,
+    таймер), три модальных окна и скрипт из 33 функций. Ниже — структура страницы и разбор каждой функции.</p>
+
+  <h2>Структура файла</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Строки</th><th>Блок</th><th>Что внутри</th></tr></thead>
+      <tbody>
+        <tr><td>1–110</td><td><code>&lt;head&gt;</code></td><td>Tailwind с CDN, свои <code>@keyframes</code>, Font Awesome, шрифт Inter, подключение <code>assets/skills-store.js</code></td></tr>
+        <tr><td>111–192</td><td>Боковое меню</td><td>Навигация, управление навыками, импорт/экспорт, кнопка входа</td></tr>
+        <tr><td>193–216</td><td>Шапка контента</td><td>Заголовок, картинка <code>assets/hero.png</code>, кнопка перехода к тренажёру</td></tr>
+        <tr><td>217–256</td><td>Блок навыка</td><td>Стрелки переключения, название, уровень, пять клеток опыта, подпись и описание</td></tr>
+        <tr><td>257–280</td><td>Блок заданий</td><td>Форма создания и контейнер <code>#taskList</code></td></tr>
+        <tr><td>281–305</td><td>Блок таймера</td><td>Табло <code>00:00:00</code>, кнопки старт/пауза/сброс, поля часов, минут, секунд</td></tr>
+        <tr><td>306–390</td><td>Модальные окна</td><td>Редактирование навыка, редактирование задания, менеджер навыков</td></tr>
+        <tr><td>391–1048</td><td><code>&lt;script&gt;</code></td><td>33 функции: данные, навыки, задания, таймер, утилиты, инициализация, фон</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Инициализация данных</h2>
+
+  <pre data-lang="js" data-file="index.html, начало скрипта">// Данные хранятся в общем модуле assets/skills-store.js,
+// чтобы страница прокачки (page2.html) работала с теми же навыками.
+const EXP_PER_LEVEL = SkillsStore.EXP_PER_LEVEL;
+let data = SkillsStore.load();
+SkillsStore.save(data);
+
+let currentSkillIndex = 0;
+let currentTaskId = null;</pre>
+
+  <p><code>SkillsStore.load()</code> уже нормализует данные: гарантирует массивы, наличие дефолтного
+    навыка и корректные числа. Повторное сохранение сразу после загрузки фиксирует нормализованную
+    версию — если в хранилище лежал мусор, он чинится при первом же открытии страницы.</p>
+
+  <div class="note note--warn">
+    <div class="note__title">Почему <code>&lt;script src="assets/skills-store.js"&gt;</code> без <code>defer</code></div>
+    <p>Инлайновый скрипт обращается к <code>SkillsStore</code> сразу при разборе страницы. Атрибут
+      <code>defer</code> откладывает выполнение внешнего файла до конца парсинга, то есть <i>после</i>
+      инлайнового кода — получилась бы ошибка <code>SkillsStore is not defined</code>. Обычный
+      блокирующий тег гарантирует нужный порядок. Именно это ловит тест
+      <span class="badge badge--muted">pages #1</span>, который падает при любой ошибке JS на странице.</p>
+  </div>
+
+  <h2>Данные: импорт и экспорт</h2>
+
+  <div class="sig"><b>saveData</b>(): void</div>
+  <p>Тонкая обёртка над <code>SkillsStore.save(data)</code>. Вызывается после каждого изменения —
+    приложение не держит «несохранённого» состояния.</p>
+
+  <div class="sig"><b>generateId</b>(): string</div>
+  <p>Делегирует в <code>SkillsStore.generateId()</code>: <code>crypto.randomUUID()</code>, а если браузер
+    старый — строка вида <code>_k3n8s2p1x</code>.</p>
+
+  <div class="sig"><b>copyDataAsJSON</b>(): void</div>
+  <p>Кладёт <code>JSON.stringify(data, null, 2)</code> в буфер обмена через
+    <code>navigator.clipboard.writeText</code> и показывает уведомление. В браузере API доступно только
+    на HTTPS или localhost, поэтому ошибка логируется в консоль.</p>
+
+  <div class="sig"><b>downloadDataAsJSON</b>(): void</div>
+  <p>Создаёт <code>Blob</code> с данными, генерирует временный <code>objectURL</code>, кликает по
+    невидимой ссылке <code>&lt;a download="levelUpData.json"&gt;</code> и освобождает URL через
+    <code>revokeObjectURL</code> — без этого блоб остался бы в памяти вкладки.</p>
+
+  <div class="sig"><b>uploadDataFromJSON</b>(event: Event): void</div>
+  <pre data-lang="js" data-file="ключевая часть">const reader = new FileReader();
+reader.onload = (e) =&gt; {
+  try {
+    data = SkillsStore.normalize(JSON.parse(e.target.result));
+    currentSkillIndex = 0;
+    saveData();
+    renderSkill();
+    renderTasks();
+    updateXpSkillSelect();
+    showNotification("Данные загружены!");
+  } catch (error) {
+    showNotification("Ошибка при загрузке файла JSON!");
+  }
+};
+reader.readAsText(file);</pre>
+  <p>Загруженный файл обязательно проходит <code>normalize()</code> — чужой или устаревший JSON не сможет
+    привести приложение в нерабочее состояние. Сброс <code>currentSkillIndex = 0</code> нужен потому,
+    что в новом наборе навыков прежнего индекса может не быть.</p>
+
+  <h2>Навыки</h2>
+
+  <div class="sig"><b>renderSkill</b>(): void</div>
+  <p>Главная функция отрисовки. Порядок действий:</p>
+  <ol>
+    <li>если навыков нет — создаёт дефолтный через <code>SkillsStore.createDefaultSkill()</code>;</li>
+    <li>чинит индекс, если он вышел за пределы массива (например, после удаления);</li>
+    <li>пишет название и уровень;</li>
+    <li>закрашивает клетки опыта: <code>index &lt; Math.min(skill.exp, EXP_PER_LEVEL)</code> — ограничение
+      защищает от «переполнения» шкалы, если опыт временно больше пяти;</li>
+    <li>обновляет подпись <code>«3 / 5 XP»</code> и описание навыка;</li>
+    <li>подсвечивает блок красным, если навык дефолтный.</li>
+  </ol>
+
+  <div class="note note--ok">
+    <div class="note__title">Удалённый мёртвый код</div>
+    <p>Раньше в этом же цикле на каждую клетку вешался обработчик <code>onmouseenter</code>, который искал
+      элемент <code>#guiSound</code> и пытался проиграть звук. Элемента с таким id в разметке никогда не
+      существовало — код выполнялся вхолостую при каждом наведении. Он удалён, а тест
+      <span class="badge badge--muted">pages #1</span> проверяет, что <code>#guiSound</code> действительно нет.</p>
+  </div>
+
+  <div class="sig"><b>skillSquareClick</b>(e: Event, index: number): void</div>
+  <pre data-lang="js" data-file="логика клика по клетке">skill.exp = (skill.exp &gt; index) ? index : (index + 1);</pre>
+  <p>Клик по клетке работает как переключатель: если опыта больше номера клетки — опыт уменьшается до
+    этого номера (снимаем лишние), иначе увеличивается до <code>index + 1</code> (закрашиваем по клетку
+    включительно). Затем — сохранение, перерисовка и проверка уровня. <code>e.stopPropagation()</code>
+    не даёт клику всплыть до блока навыка и открыть окно редактирования.</p>
+
+  <div class="sig"><b>prevSkill</b>(): void  /  <b>nextSkill</b>(): void</div>
+  <p>Переключение навыков стрелками. У <code>nextSkill</code> есть особенность: на последнем навыке она
+    не упирается в конец, а создаёт новый — это быстрый способ добавить навык.</p>
+
+  <div class="sig"><b>addNewSkill</b>(): void</div>
+  <p>Добавляет <code>{ name: "Новый навык", level: 1, exp: 0, default: false }</code>, делает его текущим,
+    сохраняет, обновляет выпадающие списки заданий и показывает уведомление.</p>
+
+  <div class="sig"><b>openSkillsManager</b>(): void  /  <b>closeSkillsManager</b>(): void</div>
+  <p>Модальное окно «Мои навыки». Для каждого навыка строится строка с названием, уровнем и опытом:
+    клик по названию делает навык текущим и закрывает окно, кнопка «Удалить» спрашивает подтверждение и
+    убирает навык. У дефолтного навыка кнопка удаления заблокирована (<code>disabled</code> с подсказкой).
+    После удаления окно перерисовывается вызовом самой себя.</p>
+
+  <pre data-lang="js" data-file="удаление навыка">removeBtn.onclick = () =&gt; {
+  if (!confirm(`Удалить навык «${skill.name}»?`)) return;
+  data.skills = data.skills.filter(item =&gt; item.id !== skill.id);
+  if (currentSkillIndex &gt;= data.skills.length) currentSkillIndex = data.skills.length - 1;
+  saveData();
+  renderSkill();
+  updateXpSkillSelect();
+  openSkillsManager();
+  showNotification("Навык удалён!");
+};</pre>
+
+  <div class="note">
+    <div class="note__title">Было заглушкой</div>
+    <p>До правок функция состояла из одной строки — <code>showNotification("Менеджер навыков скоро будет
+      доступен!")</code>, хотя кнопка в меню была видимой и кликабельной. Теперь это рабочее окно,
+      покрытое тестом <span class="badge badge--muted">pages #4</span>.</p>
+  </div>
+
+  <div class="sig"><b>openSkillModal</b>() / <b>closeSkillModal</b>() / <b>saveSkillModal</b>()</div>
+  <p>Редактирование навыка. Дефолтный навык редактировать нельзя — окно даже не откроется.
+    При сохранении проверяются: непустое название, уровень ≥ 1, опыт в диапазоне 0…<code>EXP_PER_LEVEL</code>.
+    После сохранения флаг <code>default</code> снимается: отредактированный навык становится обычным.</p>
+
+  <div class="sig"><b>checkLevelUp</b>(skill: Skill): void</div>
+  <pre data-lang="js" data-file="итоговая реализация">// Повышаем уровень столько раз, сколько хватает опыта:
+// при награде в 20 XP игрок получает 4 уровня, а не один.
+function checkLevelUp(skill) {
+  const levelsGained = SkillsStore.applyLevelUps(skill);
+  if (levelsGained &gt; 0) {
+    showNotification(`Уровень повышен до ${skill.level}!`);
+    saveData();
+    renderSkill();
+  }
+}</pre>
+  <p>Сами правила уровней живут в store, страница отвечает только за уведомление и перерисовку.
+    Проверяется тестом <span class="badge badge--muted">pages #2</span>: 22 XP → 4 уровня и остаток 2 XP.</p>
+
+  <h2>Задания</h2>
+
+  <div class="sig"><b>renderTasks</b>(): void</div>
+  <p>Полностью пересобирает список <code>#taskList</code>. Для каждой задачи создаётся карточка:
+    название (зачёркнутое, если выполнено), награда, тип, полоса прогресса и три кнопки —
+    «Выполнить», «Ред.», «Удалить». Все элементы создаются через <code>createElement</code>, а тексты
+    задаются <code>innerText</code>, поэтому название задания не может выполниться как разметка.</p>
+
+  <pre data-lang="js" data-file="полоса прогресса — после исправления">const progressFill = document.createElement("div");
+progressFill.className = task.completed ? "bg-green-500 h-full" : "bg-cyan-500 h-full";
+progressFill.style.width = task.completed ? "100%" : "0%";</pre>
+
+  <p>Раньше здесь стояла заглушка <code>progressFill.style.width = "50%"; // Placeholder</code> внутри
+    условия <code>if (!task.completed &amp;&amp; task.duration)</code>, причём поле <code>duration</code>
+    у задач никогда не создавалось — полоса рисовалась случайным образом и всегда врала.</p>
+
+  <div class="sig"><b>addTask</b>(): void</div>
+  <p>Читает форму, требует непустое название, проверяет, что награда — неотрицательное число
+    (иначе подсвечивает поле через <code>highlightField</code>), создаёт задачу с
+    <code>createdAt</code> и <code>xpSkill</code> из выпадающего списка, очищает форму и перерисовывает список.</p>
+
+  <div class="sig"><b>completeTask</b>(id: string): void</div>
+  <ol>
+    <li>находит задачу; если она уже выполнена — только уведомление;</li>
+    <li>если награда корректна, ищет навык по <code>task.xpSkill</code>, при отсутствии берёт первый и предупреждает об этом;</li>
+    <li>начисляет опыт и вызывает <code>checkLevelUp</code>;</li>
+    <li>ставит <code>completed = true</code> и <code>completedAt</code>;</li>
+    <li>сохраняет, перерисовывает задачи и навык, показывает уведомление.</li>
+  </ol>
+  <p>Проверяется тестом <span class="badge badge--muted">pages #3</span>: награда 7 XP переводит навык
+    с уровня 1 на 2 и оставляет 2 XP.</p>
+
+  <div class="sig"><b>openTaskModal</b>(id) / <b>closeTaskModal</b>() / <b>saveTaskModal</b>()</div>
+  <p>Редактирование задания. Идентификатор редактируемой задачи хранится в <code>currentTaskId</code>.
+    При сохранении заново проверяются название и награда, затем поля перезаписываются и список
+    перерисовывается.</p>
+
+  <div class="sig"><b>highlightField</b>(fieldId: string): void</div>
+  <p>Подсвечивает поле красной рамкой с пульсацией на 1,5 секунды — визуальная обратная связь при ошибке ввода.</p>
+
+  <h2>Таймер</h2>
+
+  <div class="sig"><b>startTimer</b>() / <b>updateTimer</b>() / <b>updateTimerDisplay</b>() / <b>pauseTimer</b>() / <b>resetTimer</b>() / <b>formatTime</b>(time)</div>
+
+  <p>Состояние — два модуля-уровня переменных: <code>timerInterval</code> и объект
+    <code>remainingTime = { hours, minutes, seconds }</code>.</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Функция</th><th>Поведение</th></tr></thead>
+      <tbody>
+        <tr><td><code>startTimer</code></td><td>Читает три поля, отказывается стартовать при нулях или отрицательных значениях, чистит прежний интервал и запускает <code>setInterval(updateTimer, 1000)</code></td></tr>
+        <tr><td><code>updateTimer</code></td><td>Вычитает секунду с «займом» у минут и часов; при полном нуле останавливает интервал, показывает «Время истекло!» и вызывает <code>resetTimer</code></td></tr>
+        <tr><td><code>updateTimerDisplay</code></td><td>Пишет отформатированное время в <code>#timerDisplay</code></td></tr>
+        <tr><td><code>pauseTimer</code></td><td>Останавливает интервал, сохраняя остаток времени</td></tr>
+        <tr><td><code>resetTimer</code></td><td>Пауза + обнуление состояния и полей ввода</td></tr>
+        <tr><td><code>formatTime</code></td><td><code>padStart(2, '0')</code> для каждой части → <code>01:05:09</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note note--warn">
+    <div class="note__title">Известное ограничение</div>
+    <p>Таймер основан на <code>setInterval</code> и считает «тики», а не реальное время. В фоновой вкладке
+      браузер прореживает таймеры, поэтому отсчёт может отстать. Точное решение — запоминать
+      <code>Date.now()</code> старта и вычислять остаток от него.</p>
+  </div>
+
+  <h2>Утилиты и инициализация</h2>
+
+  <div class="sig"><b>updateXpSkillSelect</b>(): void</div>
+  <p>Перезаполняет оба выпадающих списка навыков — в форме создания и в окне редактирования задания.
+    <code>option.value</code> — это <code>skill.id</code>, поэтому переименование навыка не рвёт связь с задачами.</p>
+
+  <div class="sig"><b>showNotification</b>(message: string): void</div>
+  <p>Показывает «системное» уведомление в правом нижнем углу на три секунды. Текст задаётся
+    <code>innerText</code>.</p>
+
+  <div class="sig">document.addEventListener('DOMContentLoaded', …)</div>
+  <pre data-lang="js" data-file="инициализация">// Кто вошёл — спрашиваем у сервера по сессионной куке.
+// Пароли и профиль больше не хранятся в localStorage.
+fetch('/api/me', { credentials: 'same-origin' })
+  .then(response =&gt; (response.ok ? response.json() : null))
+  .then(result =&gt; {
+    if (!result || !result.user) return;
+    document.getElementById('regBtnLabel').textContent = "Мой профиль";
+    document.getElementById('regBtn').href = "userinfo.html";
+    document.getElementById('userInfo').textContent = result.user.username;
+  })
+  .catch(() =&gt; { /* офлайн-режим: остаёмся гостем */ });</pre>
+  <p>Далее навешиваются обработчики кнопок скачивания и загрузки JSON, кнопки мобильного меню, и
+    выполняется первичная отрисовка: <code>updateXpSkillSelect()</code>, <code>renderSkill()</code>,
+    <code>renderTasks()</code>, <code>animateStarfield()</code>.</p>
+
+  <p>Важная деталь: подпись кнопки меняется у вложенного <code>&lt;span id="regBtnLabel"&gt;</code>, а не
+    у самой ссылки. Раньше текст присваивался всему элементу <code>&lt;a&gt;</code> и стирал иконку
+    Font Awesome внутри него.</p>
+
+  <div class="sig"><b>toggleSidebar</b>(): void</div>
+  <p>Переключает класс сдвига боковой панели на мобильных экранах.</p>
+
+  <div class="sig"><b>animateStarfield</b>(): void</div>
+  <p>Фон: 300 звёзд на <code>&lt;canvas id="starsCanvas"&gt;</code>, каждая со своей скоростью; на каждом
+    кадре <code>requestAnimationFrame</code> перерисовываются круги, вышедшие за границу «телепортируются»
+    на противоположную сторону. Канвас растягивается по размеру окна и обновляется по событию
+    <code>resize</code>.</p>
+
+  <h2>Навигация страницы</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Пункт меню</th><th>Куда ведёт</th></tr></thead>
+      <tbody>
+        <tr><td>Главная</td><td><code>index.html</code> (раньше был пустой <code>href="#"</code>)</td></tr>
+        <tr><td>Прокачка</td><td><code>page2.html</code> — тренажёр памяти</td></tr>
+        <tr><td>Профиль</td><td><code>userinfo.html</code> (заменил нерабочие «Достижения» и «Статистика»)</td></tr>
+        <tr><td>Добавить навык / Мои навыки</td><td>Функции <code>addNewSkill()</code> и <code>openSkillsManager()</code></td></tr>
+        <tr><td>Копировать / Скачать / Загрузить данные</td><td>Работа с JSON</td></tr>
+        <tr><td>Войти / Регистрация</td><td><code>login.html</code>, после входа превращается в «Мой профиль»</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>Тест <span class="badge badge--muted">pages #5</span> следит за тем, чтобы в разметке не появилось
+    новых ссылок-пустышек <code>href="#"</code>.</p>
+
+</main>
+<script src="assets/docs.js"></script>
+</body>
+</html>

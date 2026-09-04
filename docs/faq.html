@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FAQ и глоссарий</title>
+  <link rel="stylesheet" href="assets/docs.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+<main class="content">
+
+  <h1>FAQ и глоссарий</h1>
+  <p class="lead">Ответы на вопросы, которые возникают при первом чтении кода, рецепты типичных доработок,
+    словарь терминов и карта «где что искать».</p>
+
+  <h2>Вопросы по устройству проекта</h2>
+
+  <h3>Почему игровые данные не на сервере?</h3>
+  <p>Приложение задумано как личный трекер, который работает без регистрации и без сети. Навыки и
+    задания живут в <code>localStorage</code>, поэтому страницу можно открыть даже файлом с диска.
+    Аккаунт нужен только для профиля на сервере; для переноса прогресса между устройствами есть
+    экспорт и импорт JSON, а эндпоинт <code>PUT /api/me/profile</code> — готовый задел под синхронизацию.</p>
+
+  <h3>Почему JSON-файл вместо базы данных?</h3>
+  <p>Учебный масштаб: десятки пользователей, никакой аналитики, ноль внешних сервисов для запуска.
+    Файл читается и пишется целиком, запись атомарная. Слабое место — гонка при одновременных
+    регистрациях: между чтением и записью нет блокировки. Как только пользователей станет больше
+    нескольких десятков, стоит взять SQLite.</p>
+
+  <h3>Почему Tailwind подключён через CDN и только на главной?</h3>
+  <p>Так исторически была написана главная страница, и это позволяет обойтись без сборки. Остальные
+    страницы используют обычный CSS. Плата за удобство: в офлайне главная теряет оформление, в консоли
+    появляется предупреждение о непригодности CDN-сборки для продакшена, а строгий CSP включить нельзя.</p>
+
+  <h3>Почему инлайновые скрипты, а не отдельные файлы?</h3>
+  <p>Каждая страница самодостаточна и открывается двойным кликом. Общий код уже вынесен —
+    <code>assets/skills-store.js</code> и <code>assets/auth.css</code>. Следующим логичным шагом было бы
+    вынести и скрипт главной, что заодно позволит включить CSP.</p>
+
+  <h3>Зачем нужен «Default Skill», который нельзя удалить?</h3>
+  <p>Чтобы у приложения всегда был получатель опыта. Если бы список навыков мог опустеть, каждое
+    начисление XP требовало бы отдельной ветки «а если навыков нет». Навык можно переименовать и
+    отредактировать — тогда он перестаёт быть дефолтным, а <code>normalize()</code> создаст новый.</p>
+
+  <h3>Почему сессия хранит только логин?</h3>
+  <p>Данные пользователя могут измениться, а копия в сессии устареет. Логин — стабильный ключ; по нему
+    <code>/api/me</code> каждый раз читает актуальную запись. Размер куки при этом минимален.</p>
+
+  <h3>Зачем оставили устаревший <code>POST /register</code>?</h3>
+  <p>Ради обратной совместимости с любым внешним клиентом, который мог им пользоваться. Внутри он
+    вызывает те же обработчики, что и новые эндпоинты, поэтому получает и хеширование, и валидацию,
+    и rate limit.</p>
+
+  <h2>Практические рецепты</h2>
+
+  <h3>Изменить количество опыта на уровень</h3>
+  <pre data-lang="js" data-file="assets/skills-store.js">const EXP_PER_LEVEL = 5;   // ← поменяйте здесь</pre>
+  <p>Больше нигде править не нужно: главная берёт значение из модуля. Но в разметке блока навыка
+    жёстко пять клеток <code>.exp-square</code> — если ставите другое число, обновите и их.</p>
+
+  <h3>Изменить сложность тренажёра</h3>
+  <pre data-lang="js" data-file="page2.html, createLevelNode()">const speed = 1 + 0.2 * (level - 1);            // скорость показа
+const xpReward = 10 + 5 * (level - 1);          // награда
+const digits = 4 + Math.floor((level - 1) / 3); // длина числа/слова
+const isWordLevel = level % 2 === 0;            // чередование чисел и слов</pre>
+  <p>Время показа считается как <code>4 / speed</code> в <code>startTraining()</code>.</p>
+
+  <h3>Добавить поле в навык</h3>
+  <ol>
+    <li>Добавьте его в <code>createDefaultSkill()</code>.</li>
+    <li>Добавьте значение по умолчанию в цикл внутри <code>normalize()</code> — тогда старые сохранения
+      подхватят поле автоматически.</li>
+    <li>Отрисуйте его в <code>renderSkill()</code> и, если нужно, добавьте поле в модальное окно.</li>
+  </ol>
+
+  <h3>Добавить эндпоинт API</h3>
+  <pre data-lang="js" data-file="server.js">app.get('/api/stats', (req, res) =&gt; {
+  if (!req.session.username) {
+    return res.status(401).json({ success: false, message: 'Не авторизован' });
+  }
+
+  const users = readUsers();
+  return res.json({ success: true, total: users.length });
+});</pre>
+  <p>Регистрируйте маршрут <b>до</b> <code>express.static</code>, иначе его может перехватить файл.
+    Придерживайтесь общего формата ответа <code>{ success, message? }</code> и добавьте тест
+    в <code>test/server.test.js</code>.</p>
+
+  <h3>Сбросить свой игровой прогресс</h3>
+  <pre data-lang="js" data-file="консоль браузера">localStorage.removeItem('levelUpData');        // навыки и задания
+localStorage.removeItem('memoryTrainerData');  // прогресс тренажёра
+location.reload();</pre>
+
+  <h3>Удалить пользователя</h3>
+  <p>Интерфейса для этого нет. Остановите сервер, откройте <code>users.json</code>, удалите нужный
+    объект из массива, сохраните файл и запустите сервер снова.</p>
+
+  <h2>Глоссарий</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Термин</th><th>Значение в этом проекте</th></tr></thead>
+      <tbody>
+        <tr><td><b>XP</b></td><td>Опыт. Начисляется за выполненные задания и пройденные уровни тренажёра</td></tr>
+        <tr><td><b>Уровень навыка</b></td><td>Растёт на единицу за каждые <code>EXP_PER_LEVEL</code> (5) опыта</td></tr>
+        <tr><td><b>Дефолтный навык</b></td><td>Навык с флагом <code>default: true</code>; всегда существует и не удаляется</td></tr>
+        <tr><td><b>Узел дерева</b></td><td>Квадрат уровня в тренажёре; состояние — <code>locked</code>, <code>unlocked</code> или <code>completed</code></td></tr>
+        <tr><td><b>bcrypt</b></td><td>Алгоритм медленного хеширования паролей со встроенной солью</td></tr>
+        <tr><td><b>Cost / rounds</b></td><td>Параметр стоимости bcrypt; 10 означает 2¹⁰ итераций</td></tr>
+        <tr><td><b>httpOnly-кука</b></td><td>Кука, недоступная из JavaScript, — её нельзя украсть через XSS</td></tr>
+        <tr><td><b>SameSite=lax</b></td><td>Кука не отправляется в межсайтовых POST-запросах: базовая защита от CSRF</td></tr>
+        <tr><td><b>XSS</b></td><td>Внедрение чужого скрипта через данные, выведенные как разметка</td></tr>
+        <tr><td><b>CSRF</b></td><td>Запрос от имени пользователя, инициированный сторонним сайтом</td></tr>
+        <tr><td><b>Rate limiting</b></td><td>Ограничение числа запросов с одного IP за окно времени</td></tr>
+        <tr><td><b>Middleware</b></td><td>Функция Express, обрабатывающая запрос до маршрута</td></tr>
+        <tr><td><b>jsdom</b></td><td>Реализация DOM для Node; позволяет тестировать страницы без браузера</td></tr>
+        <tr><td><b>IIFE</b></td><td>Немедленно вызываемая функция; изолирует переменные модуля от глобальной области</td></tr>
+        <tr><td><b>Атомарная запись</b></td><td>Запись во временный файл с последующим <code>rename</code> — исключает «половину файла»</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Где что искать</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Задача</th><th>Файл и место</th></tr></thead>
+      <tbody>
+        <tr><td>Изменить правила уровней</td><td><code>assets/skills-store.js</code> → <code>applyLevelUps</code></td></tr>
+        <tr><td>Поправить валидацию логина или пароля</td><td><code>server.js</code> → <code>validateCredentials</code>, <code>USERNAME_RE</code></td></tr>
+        <tr><td>Настроить срок жизни сессии</td><td><code>server.js</code> → опции <code>session.cookie.maxAge</code></td></tr>
+        <tr><td>Поменять лимит попыток входа</td><td><code>server.js</code> → <code>authLimiter</code></td></tr>
+        <tr><td>Изменить вид карточки задания</td><td><code>index.html</code> → <code>renderTasks</code></td></tr>
+        <tr><td>Настроить таймер</td><td><code>index.html</code> → <code>startTimer</code> … <code>formatTime</code></td></tr>
+        <tr><td>Поправить сложность тренажёра</td><td><code>page2.html</code> → <code>createLevelNode</code></td></tr>
+        <tr><td>Изменить оформление входа и профиля</td><td><code>assets/auth.css</code></td></tr>
+        <tr><td>Добавить тест API</td><td><code>test/server.test.js</code></td></tr>
+        <tr><td>Добавить тест страницы</td><td><code>test/pages.test.js</code> → функция <code>loadPage</code></td></tr>
+        <tr><td>Поправить эту документацию</td><td><code>docs/*.html</code>, навигация — в <code>docs/assets/docs.js</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Возможные направления развития</h2>
+
+  <div class="grid">
+    <div class="card">
+      <div class="card__title">Синхронизация прогресса</div>
+      <p>Отправлять навыки на <code>PUT /api/me/profile</code> при каждом изменении и подтягивать их при
+        входе. Серверная часть уже готова и покрыта тестами.</p>
+    </div>
+    <div class="card">
+      <div class="card__title">Достижения и статистика</div>
+      <p>Пункты меню были удалены как нерабочие. Данных для них достаточно: <code>createdAt</code> и
+        <code>completedAt</code> у заданий позволяют строить графики и серии.</p>
+    </div>
+    <div class="card">
+      <div class="card__title">Ежедневный сброс заданий</div>
+      <p>Тип <code>daily</code> сейчас чисто декоративный. Логично сбрасывать <code>completed</code> при
+        смене даты, сравнивая с <code>completedAt</code>.</p>
+    </div>
+    <div class="card">
+      <div class="card__title">Точный таймер и уведомления</div>
+      <p>Считать остаток от <code>Date.now()</code> и добавить Notification API, чтобы сообщение об
+        окончании приходило и при свёрнутой вкладке.</p>
+    </div>
+    <div class="card">
+      <div class="card__title">PWA</div>
+      <p>Манифест и service worker сделают приложение устанавливаемым и полностью офлайновым —
+        локальные CDN-ресурсы для этого всё равно понадобятся.</p>
+    </div>
+    <div class="card">
+      <div class="card__title">Экспорт в CSV и графики</div>
+      <p>История выполненных заданий уже содержит даты; остаётся выгрузка и визуализация динамики уровней.</p>
+    </div>
+  </div>
+
+  <h2>Полезные ссылки</h2>
+
+  <ul>
+    <li><a href="https://github.com/DMloaderJava/SoloLeveling">Репозиторий на GitHub</a></li>
+    <li><a href="https://github.com/DMloaderJava/SoloLeveling/pull/1">Pull request #1 — аудит и исправления</a></li>
+    <li><a href="../index.html">Само приложение</a> · <a href="../page2.html">тренажёр памяти</a></li>
+    <li><a href="https://expressjs.com/ru/">Документация Express</a> ·
+      <a href="https://nodejs.org/api/test.html">node:test</a> ·
+      <a href="https://github.com/jsdom/jsdom#readme">jsdom</a></li>
+  </ul>
+
+</main>
+<script src="assets/docs.js"></script>
+</body>
+</html>

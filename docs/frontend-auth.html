@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Вход и профиль</title>
+  <link rel="stylesheet" href="assets/docs.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+<main class="content">
+
+  <h1>Вход и профиль</h1>
+  <p class="lead">Две небольшие страницы, которые целиком работают через API: <code>login.html</code> —
+    форма входа и регистрации, <code>userinfo.html</code> — экран профиля. Обе используют общий
+    <code>assets/auth.css</code>.</p>
+
+  <h2>login.html — вход и регистрация</h2>
+
+  <p>Одна форма и две кнопки: «Войти» отправляет данные на <code>/api/login</code>, «Зарегистрироваться» —
+    на <code>/api/register</code>. Отдельной страницы регистрации нет намеренно: поля одинаковые,
+    а лишний переход только мешает.</p>
+
+  <pre data-lang="html" data-file="разметка формы">&lt;form class="auth-form" id="authForm" autocomplete="on"&gt;
+  &lt;input type="text" id="username" name="username" placeholder="Логин" autocomplete="username"
+         minlength="3" maxlength="32" required&gt;
+  &lt;input type="password" id="password" name="password" placeholder="Пароль"
+         autocomplete="current-password" minlength="6" maxlength="128" required&gt;
+
+  &lt;div class="btn-row"&gt;
+    &lt;button type="submit" class="btn" id="loginBtn"&gt;Войти&lt;/button&gt;
+    &lt;button type="button" class="btn btn--secondary" id="registerBtn"&gt;Зарегистрироваться&lt;/button&gt;
+  &lt;/div&gt;
+
+  &lt;p class="hint"&gt;Логин: 3–32 символа. Пароль: минимум 6 символов.&lt;/p&gt;
+  &lt;p class="message" id="message" role="status" aria-live="polite"&gt;&lt;/p&gt;
+&lt;/form&gt;</pre>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Деталь разметки</th><th>Зачем</th></tr></thead>
+      <tbody>
+        <tr><td><code>type="submit"</code> у «Войти»</td><td>Вход срабатывает по Enter — самый частый сценарий</td></tr>
+        <tr><td><code>type="button"</code> у «Зарегистрироваться»</td><td>Чтобы кнопка не отправляла форму случайно</td></tr>
+        <tr><td><code>autocomplete="username" / "current-password"</code></td><td>Менеджеры паролей корректно подставляют и сохраняют данные</td></tr>
+        <tr><td><code>minlength</code> / <code>maxlength</code></td><td>Браузерная подсказка, дублирующая серверную валидацию</td></tr>
+        <tr><td><code>role="status"</code>, <code>aria-live="polite"</code></td><td>Скринридер озвучивает результат, не перебивая пользователя</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Функции страницы</h3>
+
+  <div class="sig"><b>showMessage</b>(text: string, kind: 'error' | 'success'): void</div>
+  <p>Пишет текст в строку под формой и переключает класс — красный для ошибки, зелёный для успеха.</p>
+
+  <div class="sig"><b>setBusy</b>(busy: boolean): void</div>
+  <p>Блокирует обе кнопки на время запроса, чтобы двойной клик не создал два запроса.</p>
+
+  <div class="sig"><b>submitCredentials</b>(endpoint: string): Promise&lt;void&gt;</div>
+
+  <pre data-lang="js" data-file="отправка данных">/**
+ * Отправляет учётные данные на сервер.
+ * Пароль уходит только в теле запроса и нигде не сохраняется на клиенте —
+ * состояние входа держит httpOnly-кука сессии.
+ */
+async function submitCredentials(endpoint) {
+  const username = document.getElementById('username').value.trim();
+  const password = document.getElementById('password').value;
+
+  if (!username || !password) {
+    showMessage('Заполните логин и пароль.', 'error');
+    return;
+  }
+
+  setBusy(true);
+  showMessage('Отправляем данные…', 'success');
+
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ username, password })
+    });
+
+    const result = await response.json().catch(() =&gt; ({}));
+
+    if (!response.ok || !result.success) {
+      showMessage(result.message || 'Не удалось выполнить запрос.', 'error');
+      return;
+    }
+
+    showMessage(result.message || 'Готово!', 'success');
+    window.location.href = 'userinfo.html';
+  } catch (error) {
+    console.error(error);
+    showMessage('Сервер недоступен. Запустите его командой «npm start».', 'error');
+  } finally {
+    setBusy(false);
+  }
+}</pre>
+
+  <p>Обе кнопки вызывают одну функцию с разным адресом — дублирования логики нет. Блок
+    <code>catch</code> отрабатывает единственный случай, когда <code>fetch</code> бросает исключение:
+    сети нет вообще (например, страница открыта как файл или сервер не запущен). Ошибки уровня
+    HTTP (400, 401, 409) исключений не вызывают и обрабатываются проверкой <code>response.ok</code>.</p>
+
+  <div class="note note--danger">
+    <div class="note__title">Что здесь было раньше</div>
+    <p>Страница вообще не обращалась к серверу. Она вела массив пользователей прямо в
+      <code>localStorage</code> и сохраняла туда пароли в открытом виде:</p>
+    <pre data-lang="js" data-file="старый код (удалён)">const userData = { username, password, profile: { level: 1, xp: 0, skills: [] } };
+users.push(userData);
+localStorage.setItem('users', JSON.stringify(users));
+localStorage.setItem('userData', JSON.stringify(userData));</pre>
+    <p>Любой скрипт на странице и любой человек с доступом к DevTools видел пароли всех, кто входил
+      с этого браузера. Тест <span class="badge badge--muted">pages #10</span> теперь запрещает
+      появление <code>localStorage.setItem</code> в этом файле.</p>
+  </div>
+
+  <h2>userinfo.html — профиль</h2>
+
+  <p>Страница ничего не знает заранее: при открытии она спрашивает у сервера <code>/api/me</code> и
+    рисует ответ. Есть три состояния — загрузка, данные пользователя, «вы не авторизованы».</p>
+
+  <div class="sig"><b>renderRow</b>(label: string, value: unknown): HTMLParagraphElement</div>
+
+  <pre data-lang="js" data-file="безопасный вывод">/** Безопасный вывод: значения вставляются через textContent, а не innerHTML. */
+function renderRow(label, value) {
+  const row = document.createElement('p');
+  const strong = document.createElement('strong');
+  strong.textContent = `${label}: `;
+  row.appendChild(strong);
+  row.appendChild(document.createTextNode(String(value)));
+  return row;
+}</pre>
+
+  <p>Это ключевая функция страницы с точки зрения безопасности: имя пользователя приходит с сервера,
+    но задано другим человеком, поэтому обращаться с ним как с разметкой нельзя.
+    Подробнее — в разделе <a href="security.html#защита-от-xss">Безопасность</a>.</p>
+
+  <div class="sig"><b>renderUser</b>(user: PublicUser): void</div>
+  <p>Строит блок с логином, уровнем, опытом, списком навыков и датой регистрации, отформатированной
+    через <code>toLocaleString('ru-RU')</code>. Затем показывает ссылку «Выйти».
+    <code>replaceChildren()</code> заменяет содержимое одним вызовом, без ручной очистки.</p>
+
+  <div class="sig"><b>renderMessage</b>(text: string): void</div>
+  <p>Отрисовывает сообщение и ссылку «Перейти ко входу» — для случаев «не авторизован» и «сервер недоступен».</p>
+
+  <div class="sig"><b>loadUser</b>(): Promise&lt;void&gt;</div>
+
+  <pre data-lang="js" data-file="загрузка профиля">const response = await fetch('/api/me', { credentials: 'same-origin' });
+
+if (response.status === 401) {
+  renderMessage('Вы не авторизованы.');
+  return;
+}
+if (!response.ok) {
+  renderMessage('Не удалось получить данные пользователя.');
+  return;
+}
+
+const result = await response.json();
+renderUser(result.user);</pre>
+
+  <p>401 обрабатывается отдельно от прочих ошибок: это не сбой, а нормальное состояние гостя,
+    и сообщение для него дружелюбное.</p>
+
+  <h3>Выход</h3>
+
+  <pre data-lang="js" data-file="обработчик выхода">document.getElementById('logoutLink').addEventListener('click', async (event) =&gt; {
+  event.preventDefault();
+  try {
+    await fetch('/api/logout', { method: 'POST', credentials: 'same-origin' });
+  } catch (error) {
+    console.error(error);
+  }
+  window.location.href = 'index.html';
+});</pre>
+
+  <p>Даже если запрос не прошёл, пользователь всё равно уходит на главную — интерфейс не должен
+    «залипать» из-за сетевой ошибки.</p>
+
+  <h2 id="общий-css">assets/auth.css — общие стили</h2>
+
+  <p>158 строк, которые раньше были скопированы в обе страницы почти дословно. Теперь это один файл
+    с переменными темы.</p>
+
+  <pre data-lang="css" data-file="переменные и базовые классы">:root {
+  --accent: #00ccff;
+  --accent-hover: #00aee0;
+  --danger: #ff5c5c;
+  --success: #4ade80;
+}</pre>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Класс</th><th>Назначение</th></tr></thead>
+      <tbody>
+        <tr><td><code>.card</code></td><td>Полупрозрачная карточка с неоновой тенью; <code>.card--wide</code> — вариант шире, для профиля</td></tr>
+        <tr><td><code>.auth-form</code></td><td>Вертикальная форма с равными отступами</td></tr>
+        <tr><td><code>.btn</code></td><td>Основная кнопка; <code>.btn--secondary</code> — контурный вариант; <code>:disabled</code> приглушает</td></tr>
+        <tr><td><code>.btn-row</code></td><td>Две кнопки в ряд, обе тянутся на равную ширину</td></tr>
+        <tr><td><code>.message</code></td><td>Строка результата; модификаторы <code>--error</code> и <code>--success</code></td></tr>
+        <tr><td><code>.hint</code></td><td>Мелкая подсказка серым</td></tr>
+        <tr><td><code>.data-block</code></td><td>Блок с данными профиля</td></tr>
+        <tr><td><code>.links</code></td><td>Нижние ссылки: «Продолжить как гость», «На главную», «Выйти»</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>У полей ввода задан <code>:focus { outline: 2px solid var(--accent) }</code>, а <code>min-height</code>
+    у строки сообщения не даёт форме «прыгать» при появлении текста.</p>
+
+  <h2>Поведение без сервера</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Ситуация</th><th>Что видит пользователь</th></tr></thead>
+      <tbody>
+        <tr><td>Сервер запущен, вход успешен</td><td>Сообщение «Вход выполнен» и переход на профиль</td></tr>
+        <tr><td>Сервер запущен, неверный пароль</td><td>Красное «Неверный логин или пароль.»</td></tr>
+        <tr><td>Сервер не запущен или страница открыта как файл</td><td>«Сервер недоступен. Запустите его командой „npm start“.»</td></tr>
+        <tr><td>Профиль открыт без входа</td><td>«Вы не авторизованы.» и ссылка на форму входа</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>Ссылка «Продолжить как гость» ведёт на <code>index.html</code>: игровая часть полностью доступна
+    без учётной записи, аккаунт нужен только для сохранения профиля на сервере.</p>
+
+</main>
+<script src="assets/docs.js"></script>
+</body>
+</html>

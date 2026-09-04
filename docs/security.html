@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Безопасность</title>
+  <link rel="stylesheet" href="assets/docs.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+<main class="content">
+
+  <h1>Безопасность</h1>
+  <p class="lead">Какие угрозы учтены, как именно они закрыты в коде, что проверяют тесты и что осталось
+    сделать перед выходом в продакшен. Раздел описывает состояние после аудита репозитория.</p>
+
+  <h2>Сводка защит</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Угроза</th><th>Защита</th><th>Где в коде</th><th>Тест</th></tr></thead>
+      <tbody>
+        <tr><td>Кража паролей при доступе к файлам или репозиторию</td><td>bcrypt-хеш, cost 10; пароль не пишется никуда в открытом виде</td><td><code>registerHandler</code></td><td><span class="badge badge--muted">server #3</span></td></tr>
+        <tr><td>Перебор паролей</td><td>Rate limit 20 попыток / 15 минут на IP</td><td><code>authLimiter</code></td><td>—</td></tr>
+        <tr><td>Перебор существующих логинов</td><td>Одинаковый 401 для «нет пользователя» и «неверный пароль»</td><td><code>loginHandler</code></td><td><span class="badge badge--muted">server #6</span></td></tr>
+        <tr><td>Кража сессии через XSS</td><td>Кука <code>httpOnly</code> — недоступна из JavaScript</td><td>настройки <code>session</code></td><td>—</td></tr>
+        <tr><td>CSRF</td><td><code>sameSite: 'lax'</code>, изменяющие операции только POST/PUT</td><td>настройки <code>session</code></td><td>—</td></tr>
+        <tr><td>XSS через имя пользователя</td><td>Вывод через <code>textContent</code>, никакого <code>innerHTML</code> с данными</td><td><code>userinfo.html</code></td><td><span class="badge badge--muted">pages #9</span></td></tr>
+        <tr><td>Утечка пароля в ответе API</td><td>Белый список полей в <code>publicUser()</code></td><td><code>server.js</code></td><td><span class="badge badge--muted">server #2</span></td></tr>
+        <tr><td>Отказ в обслуживании телом запроса</td><td>Лимит 16 КБ и максимум 128 символов пароля</td><td><code>express.json</code>, валидация</td><td><span class="badge badge--muted">server #5</span></td></tr>
+        <tr><td>Порча файла при сбое</td><td>Атомарная запись: временный файл + <code>rename</code></td><td><code>writeUsers()</code></td><td>—</td></tr>
+        <tr><td>Падение сервера на битых данных</td><td><code>readUsers()</code> ловит все ошибки чтения и парсинга</td><td><code>server.js</code></td><td><span class="badge badge--muted">server #1</span></td></tr>
+        <tr><td>Инъекция объекта вместо строки</td><td>Проверки <code>typeof</code> и приведение <code>String()</code></td><td><code>validateCredentials</code>, <code>findUser</code></td><td><span class="badge badge--muted">server #5</span></td></tr>
+        <tr><td>Разглашение стека технологий</td><td><code>helmet</code>, снят <code>X-Powered-By</code>, своя кука <code>sl.sid</code></td><td><code>server.js</code></td><td>—</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Хранение паролей</h2>
+
+  <div class="diagram">форма login.html
+      │  password: "secret123"
+      ▼
+POST /api/register  (тело запроса, HTTPS в продакшене)
+      │
+      ▼
+bcrypt.hash(password, 10)
+      │
+      ▼
+users.json:  "passwordHash": "$2a$10$XokiFmmJfv9Kug…"
+             ^^^^^^^^^^^^^^  ни пароля, ни возможности его восстановить
+
+пароль НЕ попадает: в лог, в ответ API, в localStorage, в URL, в Git</div>
+
+  <p>bcrypt выбран сознательно: он медленный по замыслу и включает соль в сам хеш, поэтому радужные
+    таблицы и сравнение одинаковых паролей между пользователями не работают. Стоимость 10 (около 2¹⁰
+    итераций) — стандартный компромисс между временем ответа и стойкостью; её можно поднять переменной
+    <code>BCRYPT_ROUNDS</code>.</p>
+
+  <div class="note note--danger">
+    <div class="note__title">Что было до аудита</div>
+    <p>Пароль хранился строкой и в <code>users.json</code>, и в <code>localStorage</code> браузера, а
+      сервер возвращал в ответе <b>весь объект пользователя вместе с паролем</b>. Любой человек с
+      доступом к файлу, к DevTools или к перехваченному ответу получал готовые учётные данные —
+      и, скорее всего, те же пароли от других сервисов.</p>
+  </div>
+
+  <h2>Сессии</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Свойство</th><th>Значение</th><th>Что даёт</th></tr></thead>
+      <tbody>
+        <tr><td><code>httpOnly</code></td><td>true</td><td>JS не читает куку — XSS не украдёт сессию</td></tr>
+        <tr><td><code>sameSite</code></td><td>lax</td><td>Кука не уходит при межсайтовых POST — базовая защита от CSRF</td></tr>
+        <tr><td><code>secure</code></td><td>только в production</td><td>Кука ходит лишь по HTTPS</td></tr>
+        <tr><td><code>maxAge</code></td><td>7 дней</td><td>Ограниченное время жизни</td></tr>
+        <tr><td><code>saveUninitialized</code></td><td>false</td><td>Гостю кука вообще не выдаётся</td></tr>
+        <tr><td>Содержимое сессии</td><td>только <code>username</code></td><td>В куке нет ни профиля, ни хеша</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>Выход (<code>POST /api/logout</code>) вызывает <code>req.session.destroy()</code> — запись удаляется
+    на сервере, поэтому украденная ранее кука после выхода бесполезна.</p>
+
+  <h2>Защита от XSS</h2>
+
+  <p>Единственное место, где в интерфейс попадают данные, введённые пользователем и хранящиеся на
+    сервере, — экран профиля. Раньше он собирался конкатенацией строк:</p>
+
+  <pre data-lang="js" data-file="было — уязвимо">userInfoDiv.innerHTML = `
+  &lt;p&gt;&lt;strong&gt;Логин:&lt;/strong&gt; ${userData.username}&lt;/p&gt;
+`;</pre>
+
+  <p>Логин вида <code>&lt;img src=x onerror=alert(document.cookie)&gt;</code> выполнялся бы как разметка.
+    Сейчас значения вставляются текстовыми узлами, поэтому любая разметка отображается как обычный текст:</p>
+
+  <pre data-lang="js" data-file="стало — безопасно (userinfo.html)">function renderRow(label, value) {
+  const row = document.createElement('p');
+  const strong = document.createElement('strong');
+  strong.textContent = `${label}: `;
+  row.appendChild(strong);
+  row.appendChild(document.createTextNode(String(value)));
+  return row;
+}</pre>
+
+  <p>Тест <span class="badge badge--muted">pages #9</span> проверяет это статически: в
+    <code>userinfo.html</code> не должно встречаться присваивание <code>.innerHTML =</code>.</p>
+
+  <div class="note">
+    <div class="note__title">Где <code>innerHTML</code> остался и почему это допустимо</div>
+    <p>В <code>index.html</code> он используется для очистки контейнеров (<code>= ""</code>) и вставки
+      статической разметки без пользовательских данных. Названия навыков и заданий выводятся через
+      <code>innerText</code> и <code>createElement</code>. Правило простое: разметка — литералом в коде,
+      данные — только текстом.</p>
+  </div>
+
+  <h2>Валидация входных данных</h2>
+
+  <pre data-lang="js" data-file="принцип">// 1. Проверяем тип, а не только наличие
+const username = typeof body?.username === 'string' ? body.username.trim() : '';
+
+// 2. Проверяем формат регулярным выражением с явными границами длины
+const USERNAME_RE = /^[A-Za-zА-Яа-яЁё0-9_.-]{3,32}$/u;
+
+// 3. Пересобираем объект из проверенных полей, а не пишем присланный целиком
+user.profile = { level, xp, skills: skills.slice(0, 200) };</pre>
+
+  <p>Третий пункт защищает от «загрязнения» записи: клиент не может дописать в свой профиль произвольные
+    поля, например <code>isAdmin</code>. Числа проверяются <code>Number.isFinite</code>, что отсекает
+    строки, <code>NaN</code> и <code>Infinity</code>.</p>
+
+  <h2>Заголовки ответа</h2>
+
+  <pre data-lang="bash" data-file="проверка заголовков">curl -sI http://localhost:3000/ | sort
+
+# есть:      x-content-type-options: nosniff
+#            referrer-policy: no-referrer
+#            strict-transport-security: max-age=…
+# нет:       x-powered-by            (снят app.disable)
+# нет:       x-frame-options         (отключён осознанно ради превью в iframe)
+# нет:       content-security-policy (отключён из-за Tailwind с CDN)</pre>
+
+  <div class="note note--warn">
+    <div class="note__title">Компромисс, о котором нужно знать</div>
+    <p>Выключенные CSP и <code>frameguard</code> — это осознанная уступка ради CDN-стилей и работы
+      во встроенном превью. Для публичного продакшена стоит перенести Tailwind и Font Awesome в локальные
+      файлы, вынести инлайновые скрипты в отдельные <code>.js</code> и включить обе защиты обратно.</p>
+  </div>
+
+  <h2>Что не защищено и почему</h2>
+
+  <div class="grid">
+    <div class="card">
+      <div class="card__title">Нет CSRF-токенов</div>
+      <p>Опоры две: <code>sameSite: 'lax'</code> и то, что все изменяющие операции — POST/PUT с
+        <code>Content-Type: application/json</code>, который нельзя отправить простой HTML-формой.
+        Для строгого продакшена стоит добавить токены (<code>csurf</code> или double-submit cookie).</p>
+    </div>
+    <div class="card">
+      <div class="card__title">Rate limit по IP в памяти</div>
+      <p>Счётчики живут в памяти процесса: рестарт обнуляет их, а несколько инстансов считают
+        независимо. За NAT один лимит делят все пользователи. Решение — общий store (Redis).</p>
+    </div>
+    <div class="card">
+      <div class="card__title">Нет подтверждения почты и восстановления пароля</div>
+      <p>Учётка — это только логин и пароль. Забытый пароль восстановить невозможно: хеш необратим,
+        а сбрасывать его некуда отправлять.</p>
+    </div>
+    <div class="card">
+      <div class="card__title">Нет ролей и прав</div>
+      <p>Все пользователи равны, админов нет. Каждый может менять только свой профиль — проверка идёт
+        по <code>req.session.username</code>, чужой логин в теле запроса игнорируется.</p>
+    </div>
+    <div class="card">
+      <div class="card__title">Игровые данные не защищены</div>
+      <p>Навыки и задания лежат в <code>localStorage</code>: пользователь может открыть DevTools и
+        поставить себе 99-й уровень. Это одиночная игра-трекер — жульничество вредит только самому игроку.</p>
+    </div>
+    <div class="card">
+      <div class="card__title">Файл вместо базы</div>
+      <p>При десятках одновременных регистраций возможна потеря записи: между <code>readUsers</code> и
+        <code>writeUsers</code> нет блокировки. Атомарная запись спасает от повреждения файла, но не от гонки.</p>
+    </div>
+  </div>
+
+  <h2>Чек-лист перед продакшеном</h2>
+
+  <ul>
+    <li>Задать <code>SESSION_SECRET</code> длиной не менее 32 байт из менеджера секретов.</li>
+    <li>Выставить <code>NODE_ENV=production</code> и терминировать HTTPS на реверс-прокси.</li>
+    <li>Перенести хранилище сессий в Redis, иначе рестарт разлогинивает всех.</li>
+    <li>Перенести учётки в СУБД с уникальным индексом по логину.</li>
+    <li>Локализовать CDN-ресурсы и включить CSP и <code>frameguard</code>.</li>
+    <li>Настроить <code>app.set('trust proxy', 1)</code>, чтобы rate limit видел реальный IP клиента за прокси.</li>
+    <li>Добавить журналирование неудачных входов и мониторинг всплесков 401 и 429.</li>
+    <li>Держать <code>users.json</code> вне репозитория и включить его в резервное копирование.</li>
+  </ul>
+
+</main>
+<script src="assets/docs.js"></script>
+</body>
+</html>

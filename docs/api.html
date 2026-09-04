@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Справочник REST API</title>
+  <link rel="stylesheet" href="assets/docs.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+<main class="content">
+
+  <h1>Справочник REST API</h1>
+  <p class="lead">Шесть эндпоинтов: тела запросов, все коды ответов, примеры curl и готовые фрагменты
+    клиентского кода. Базовый адрес при локальном запуске — <code>http://localhost:3000</code>.</p>
+
+  <h2>Общие правила</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Аспект</th><th>Правило</th></tr></thead>
+      <tbody>
+        <tr><td>Формат</td><td>Запрос и ответ — JSON. Заголовок <code>Content-Type: application/json</code> обязателен для POST и PUT</td></tr>
+        <tr><td>Размер тела</td><td>Не более 16 КБ, иначе 413</td></tr>
+        <tr><td>Аутентификация</td><td>Кука сессии <code>sl.sid</code>. В <code>fetch</code> нужен <code>credentials: 'same-origin'</code>, в curl — <code>-c</code>/<code>-b</code></td></tr>
+        <tr><td>Ограничение частоты</td><td>20 запросов за 15 минут с IP на <code>/api/register</code>, <code>/api/login</code>, <code>/register</code></td></tr>
+        <tr><td>Формат ошибки</td><td>Всегда <code>{ "success": false, "message": "…" }</code> — текст пригоден для показа пользователю</td></tr>
+        <tr><td>Секреты</td><td>Пароль и <code>passwordHash</code> не возвращаются ни одним эндпоинтом</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Сводка</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Метод</th><th>Путь</th><th>Авторизация</th><th>Назначение</th><th>Успех</th></tr></thead>
+      <tbody>
+        <tr><td><span class="badge badge--post">POST</span></td><td><code>/api/register</code></td><td>нет</td><td>Создать учётную запись и войти</td><td>201</td></tr>
+        <tr><td><span class="badge badge--post">POST</span></td><td><code>/api/login</code></td><td>нет</td><td>Войти в существующую</td><td>200</td></tr>
+        <tr><td><span class="badge badge--post">POST</span></td><td><code>/api/logout</code></td><td>не требуется</td><td>Уничтожить сессию</td><td>200</td></tr>
+        <tr><td><span class="badge badge--get">GET</span></td><td><code>/api/me</code></td><td>да</td><td>Данные текущего пользователя</td><td>200</td></tr>
+        <tr><td><span class="badge badge--put">PUT</span></td><td><code>/api/me/profile</code></td><td>да</td><td>Сохранить игровой профиль</td><td>200</td></tr>
+        <tr><td><span class="badge badge--post">POST</span></td><td><code>/register</code></td><td>нет</td><td>Устаревший алиас: вход или регистрация</td><td>200 / 201</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>POST /api/register</h2>
+
+  <p><span class="badge badge--post">POST</span> Создаёт пользователя, хеширует пароль и сразу открывает сессию.</p>
+
+  <h4>Тело запроса</h4>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Поле</th><th>Тип</th><th>Ограничения</th></tr></thead>
+      <tbody>
+        <tr><td><code>username</code></td><td>string</td><td>3–32 символа: латиница, кириллица, цифры, <code>_</code>, <code>.</code>, <code>-</code>. Пробелы по краям обрезаются</td></tr>
+        <tr><td><code>password</code></td><td>string</td><td>6–128 символов, не обрезается</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h4>Ответы</h4>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Код</th><th>Когда</th><th>Тело</th></tr></thead>
+      <tbody>
+        <tr><td><b>201</b></td><td>Пользователь создан</td><td><code>{ success: true, message: "Регистрация успешна", user }</code> + <code>Set-Cookie</code></td></tr>
+        <tr><td><b>400</b></td><td>Не прошла валидация</td><td><code>{ success: false, message: "Логин: 3–32 символа…" }</code></td></tr>
+        <tr><td><b>409</b></td><td>Логин занят (без учёта регистра)</td><td><code>{ success: false, message: "Пользователь с таким логином уже существует." }</code></td></tr>
+        <tr><td><b>429</b></td><td>Превышен лимит попыток</td><td><code>{ success: false, message: "Слишком много попыток. Повторите позже." }</code></td></tr>
+        <tr><td><b>500</b></td><td>Ошибка записи файла и т.п.</td><td><code>{ success: false, message: "Внутренняя ошибка сервера" }</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <pre data-lang="bash" data-file="пример">curl -i -X POST http://localhost:3000/api/register \
+  -H 'Content-Type: application/json' \
+  -c cookies.txt \
+  -d '{"username":"hunter","password":"secret123"}'</pre>
+
+  <pre data-lang="json" data-file="201 Created">{
+  "success": true,
+  "message": "Регистрация успешна",
+  "user": {
+    "username": "hunter",
+    "profile": { "level": 1, "xp": 0, "skills": [] },
+    "createdAt": "2026-09-04T17:37:17.017Z"
+  }
+}</pre>
+
+  <h2>POST /api/login</h2>
+
+  <p><span class="badge badge--post">POST</span> Проверяет пару логин-пароль через <code>bcrypt.compare</code>
+    и открывает сессию.</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Код</th><th>Когда</th><th>Комментарий</th></tr></thead>
+      <tbody>
+        <tr><td><b>200</b></td><td>Успешный вход</td><td>Тело: <code>{ success: true, message: "Вход выполнен", user }</code></td></tr>
+        <tr><td><b>400</b></td><td>Пустые или некорректные поля</td><td>Та же валидация, что и при регистрации</td></tr>
+        <tr><td><b>401</b></td><td>Нет такого пользователя <b>или</b> неверный пароль</td><td>Ответ одинаковый специально — по нему нельзя определить, существует ли логин</td></tr>
+        <tr><td><b>429</b></td><td>Больше 20 попыток за 15 минут</td><td>Защита от перебора</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <pre data-lang="bash" data-file="пример">curl -s -X POST http://localhost:3000/api/login \
+  -H 'Content-Type: application/json' \
+  -c cookies.txt \
+  -d '{"username":"hunter","password":"secret123"}'</pre>
+
+  <h2>GET /api/me</h2>
+
+  <p><span class="badge badge--get">GET</span> Возвращает пользователя, чей <code>username</code> лежит в сессии.
+    Именно этим запросом главная страница определяет, показывать «Войти / Регистрация» или «Мой профиль».</p>
+
+  <pre data-lang="bash" data-file="пример">curl -s -b cookies.txt http://localhost:3000/api/me</pre>
+
+  <pre data-lang="json" data-file="200 OK">{
+  "success": true,
+  "user": {
+    "username": "hunter",
+    "profile": { "level": 1, "xp": 0, "skills": [] },
+    "createdAt": "2026-09-04T17:37:17.017Z"
+  }
+}</pre>
+
+  <pre data-lang="json" data-file="401 Unauthorized">{ "success": false, "message": "Не авторизован" }</pre>
+
+  <div class="note">
+    <div class="note__title">401 — это норма</div>
+    <p>Для гостя 401 не ошибка, а штатный ответ. Страницы обрабатывают его тихо: главная просто
+      оставляет надпись «Гость», <code>userinfo.html</code> предлагает перейти ко входу.</p>
+  </div>
+
+  <h2>PUT /api/me/profile</h2>
+
+  <p><span class="badge badge--put">PUT</span> Сохраняет игровой профиль на сервере. Задел под синхронизацию
+    прогресса между устройствами: эндпоинт готов и покрыт тестами, интерфейс пока пишет только в localStorage.</p>
+
+  <pre data-lang="json" data-file="тело запроса">{
+  "level": 3,
+  "xp": 42,
+  "skills": ["Память", "Дисциплина"]
+}</pre>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Код</th><th>Когда</th></tr></thead>
+      <tbody>
+        <tr><td><b>200</b></td><td>Профиль сохранён; в ответе обновлённый пользователь</td></tr>
+        <tr><td><b>400</b></td><td><code>level &lt; 1</code>, <code>xp &lt; 0</code>, нечисловые значения или <code>skills</code> не массив</td></tr>
+        <tr><td><b>401</b></td><td>Нет сессии</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <pre data-lang="bash" data-file="пример">curl -s -X PUT http://localhost:3000/api/me/profile \
+  -H 'Content-Type: application/json' \
+  -b cookies.txt \
+  -d '{"level":3,"xp":42,"skills":["Память"]}'</pre>
+
+  <h2>POST /api/logout</h2>
+
+  <p><span class="badge badge--post">POST</span> Уничтожает сессию на сервере и удаляет куку.
+    Всегда отвечает 200, даже если сессии не было — так клиенту не нужно обрабатывать особый случай.</p>
+
+  <pre data-lang="bash" data-file="пример">curl -s -X POST -b cookies.txt http://localhost:3000/api/logout
+# {"success":true,"message":"Выход выполнен"}</pre>
+
+  <h2>POST /register — устаревший</h2>
+
+  <p><span class="badge badge--muted">DEPRECATED</span> Совместимость со старым клиентом: если логин уже
+    существует — работает как вход, если нет — как регистрация. Новый код должен использовать явные
+    <code>/api/login</code> и <code>/api/register</code>.</p>
+
+  <div class="note note--warn">
+    <div class="note__title">Почему такое поведение нежелательно</div>
+    <p>Клиент не знает, что именно произошло — вход или создание учётки. Опечатка в логине молча создаёт
+      нового пользователя вместо ошибки «неверный пароль». Алиас оставлен только ради обратной совместимости.</p>
+  </div>
+
+  <h2>Коды ответов целиком</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Код</th><th>Значение в этом API</th></tr></thead>
+      <tbody>
+        <tr><td><b>200</b> OK</td><td>Успешный вход, чтение, сохранение профиля, выход</td></tr>
+        <tr><td><b>201</b> Created</td><td>Создан новый пользователь</td></tr>
+        <tr><td><b>400</b> Bad Request</td><td>Не прошла валидация тела запроса</td></tr>
+        <tr><td><b>401</b> Unauthorized</td><td>Нет сессии либо неверная пара логин-пароль</td></tr>
+        <tr><td><b>404</b> Not Found</td><td>Неизвестный путь внутри <code>/api</code></td></tr>
+        <tr><td><b>409</b> Conflict</td><td>Логин занят</td></tr>
+        <tr><td><b>413</b> Payload Too Large</td><td>Тело больше 16 КБ</td></tr>
+        <tr><td><b>429</b> Too Many Requests</td><td>Сработал rate limit</td></tr>
+        <tr><td><b>500</b> Internal Server Error</td><td>Непредвиденная ошибка; подробности только в логе сервера</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Клиентские примеры</h2>
+
+  <h3>Вход из браузера</h3>
+
+  <pre data-lang="js" data-file="как это сделано в login.html">const response = await fetch('/api/login', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  credentials: 'same-origin',          // без этого кука не сохранится
+  body: JSON.stringify({ username, password })
+});
+
+const result = await response.json().catch(() => ({}));
+
+if (!response.ok || !result.success) {
+  showMessage(result.message || 'Не удалось выполнить запрос.', 'error');
+  return;
+}
+
+window.location.href = 'userinfo.html';</pre>
+
+  <p>Две детали, которые легко упустить: <code>.catch(() => ({}))</code> защищает от ответа без JSON
+    (например, HTML-страницы от прокси), а проверка идёт и по <code>response.ok</code>, и по
+    <code>result.success</code>.</p>
+
+  <h3>Проверка «кто вошёл»</h3>
+
+  <pre data-lang="js" data-file="как это сделано в index.html">fetch('/api/me', { credentials: 'same-origin' })
+  .then(response =&gt; (response.ok ? response.json() : null))
+  .then(result =&gt; {
+    if (!result || !result.user) return;          // гость — просто ничего не меняем
+    document.getElementById('regBtnLabel').textContent = 'Мой профиль';
+    document.getElementById('regBtn').href = 'userinfo.html';
+    document.getElementById('userInfo').textContent = result.user.username;
+  })
+  .catch(() =&gt; { /* офлайн-режим: остаёмся гостем */ });</pre>
+
+  <h3>Полный цикл в curl</h3>
+
+  <pre data-lang="bash" data-file="сценарий">BASE=http://localhost:3000
+
+# 1. Регистрация — кука сохраняется в файл
+curl -s -c jar.txt -X POST $BASE/api/register \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"tester","password":"secret123"}'
+
+# 2. Кто я
+curl -s -b jar.txt $BASE/api/me
+
+# 3. Сохранить профиль
+curl -s -b jar.txt -X PUT $BASE/api/me/profile \
+  -H 'Content-Type: application/json' \
+  -d '{"level":2,"xp":10,"skills":["Память"]}'
+
+# 4. Выход
+curl -s -b jar.txt -X POST $BASE/api/logout
+
+# 5. Теперь снова 401
+curl -s -b jar.txt $BASE/api/me</pre>
+
+</main>
+<script src="assets/docs.js"></script>
+</body>
+</html>

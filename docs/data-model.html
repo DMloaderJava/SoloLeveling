@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Модель данных</title>
+  <link rel="stylesheet" href="assets/docs.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+<main class="content">
+
+  <h1>Модель данных</h1>
+  <p class="lead">Все структуры, которые существуют в проекте: пользователь на сервере, навык, задание и
+    прогресс тренажёра в браузере. Для каждой — поля, типы, значения по умолчанию, инварианты и живой пример.</p>
+
+  <h2>Где что хранится</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Хранилище</th><th>Ключ / файл</th><th>Что внутри</th><th>Кто пишет</th></tr></thead>
+      <tbody>
+        <tr><td>Диск сервера</td><td><code>users.json</code></td><td>Учётные записи с bcrypt-хешами</td><td><code>server.js</code></td></tr>
+        <tr><td>Память сервера</td><td>MemoryStore сессий</td><td><code>{ username }</code> для активных сессий</td><td><code>express-session</code></td></tr>
+        <tr><td>localStorage</td><td><code>levelUpData</code></td><td>Навыки и задания игрока</td><td><code>skills-store.js</code>, <code>index.html</code></td></tr>
+        <tr><td>localStorage</td><td><code>memoryTrainerData</code></td><td>Прогресс дерева тренажёра</td><td><code>page2.html</code></td></tr>
+        <tr><td>localStorage</td><td><code>sl-docs-theme</code></td><td>Выбранная тема документации</td><td><code>docs/assets/docs.js</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>User — учётная запись</h2>
+
+  <p>Создаётся в <code>registerHandler</code>, живёт в массиве внутри <code>users.json</code>.</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Поле</th><th>Тип</th><th>Правила</th></tr></thead>
+      <tbody>
+        <tr><td><code>username</code></td><td>string</td><td>3–32 символа, разрешены латиница, кириллица, цифры и <code>_ . -</code>. Регистр сохраняется, но сравнение регистронезависимое: <code>Hunter</code> и <code>hunter</code> — один пользователь</td></tr>
+        <tr><td><code>passwordHash</code></td><td>string</td><td>Результат <code>bcrypt.hash(password, 10)</code>, формат <code>$2a$10$…</code>. Пароль в открытом виде не хранится никогда</td></tr>
+        <tr><td><code>profile</code></td><td>Profile</td><td>Создаётся как <code>{ level: 1, xp: 0, skills: [] }</code></td></tr>
+        <tr><td><code>createdAt</code></td><td>string (ISO 8601)</td><td>Момент регистрации, <code>new Date().toISOString()</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h4>Profile</h4>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Поле</th><th>Тип</th><th>Валидация в <code>PUT /api/me/profile</code></th></tr></thead>
+      <tbody>
+        <tr><td><code>level</code></td><td>number</td><td>Конечное число ≥ 1</td></tr>
+        <tr><td><code>xp</code></td><td>number</td><td>Конечное число ≥ 0</td></tr>
+        <tr><td><code>skills</code></td><td>array</td><td>Массив; сервер обрезает до 200 элементов, чтобы файл не рос бесконечно</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <pre data-lang="json" data-file="users.json (реальный формат)">[
+  {
+    "username": "hunter",
+    "passwordHash": "$2a$10$XokiFmmJfv9KugL5d9ZGTeOSksFZU3D667A71TUSmp9ylSj/.CJta",
+    "profile": {
+      "level": 3,
+      "xp": 42,
+      "skills": ["Память", "Дисциплина"]
+    },
+    "createdAt": "2026-09-04T17:37:17.017Z"
+  }
+]</pre>
+
+  <div class="note note--ok">
+    <div class="note__title">Публичное представление</div>
+    <p>Наружу пользователь отдаётся через <code>publicUser()</code>, которая собирает новый объект из
+      трёх полей — <code>username</code>, <code>profile</code>, <code>createdAt</code>. Даже если в записи
+      появятся новые служебные поля, они не утекут в API автоматически: список полей задан явно.</p>
+  </div>
+
+  <h2>Skill — навык</h2>
+
+  <p>Живёт в <code>levelUpData.skills</code>. Формат задаёт <code>skills-store.js</code>.</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Поле</th><th>Тип</th><th>Значение по умолчанию</th><th>Смысл</th></tr></thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>string</td><td><code>crypto.randomUUID()</code> или <code>_abc123xyz</code></td><td>Идентификатор; на него ссылается <code>task.xpSkill</code></td></tr>
+        <tr><td><code>name</code></td><td>string</td><td><code>"Новый навык"</code></td><td>Отображаемое название</td></tr>
+        <tr><td><code>level</code></td><td>number</td><td><code>1</code></td><td>Уровень; растёт на 1 за каждые 5 XP</td></tr>
+        <tr><td><code>exp</code></td><td>number</td><td><code>0</code></td><td>Опыт внутри текущего уровня, 0–4 после нормализации</td></tr>
+        <tr><td><code>desc</code></td><td>string</td><td><code>""</code></td><td>Описание, показывается под шкалой опыта</td></tr>
+        <tr><td><code>default</code></td><td>boolean</td><td><code>false</code></td><td><code>true</code> только у стартового «Default Skill»: его нельзя удалить и редактировать</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h4>Инварианты</h4>
+  <ul>
+    <li>В массиве всегда есть ровно один навык с <code>default: true</code> — <code>normalize()</code> добавит его, если потерялся.</li>
+    <li><code>level ≥ 1</code>, <code>exp ≥ 0</code>; нечисловые значения из повреждённого хранилища заменяются на <code>1</code> и <code>0</code>.</li>
+    <li>После <code>applyLevelUps()</code> всегда <code>exp &lt; 5</code>. Значение больше 5 может существовать лишь на короткий момент между начислением награды и вызовом проверки.</li>
+    <li><code>id</code> уникален; если поле пустое, <code>normalize()</code> выдаст новый.</li>
+  </ul>
+
+  <h2>Task — задание</h2>
+
+  <p>Живёт в <code>levelUpData.tasks</code>, создаётся функцией <code>addTask()</code> на главной.</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Поле</th><th>Тип</th><th>Описание</th></tr></thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>string</td><td>UUID задания</td></tr>
+        <tr><td><code>name</code></td><td>string</td><td>Название; пустое не принимается</td></tr>
+        <tr><td><code>reward</code></td><td>number</td><td>Награда в XP, ≥ 0. Пустое поле формы означает 0</td></tr>
+        <tr><td><code>desc</code></td><td>string</td><td>Описание</td></tr>
+        <tr><td><code>type</code></td><td><code>"daily"</code> | <code>"day"</code></td><td>«Ежедневное» или «Задание дня»</td></tr>
+        <tr><td><code>xpSkill</code></td><td>string</td><td><code>id</code> навыка-получателя награды</td></tr>
+        <tr><td><code>completed</code></td><td>boolean</td><td>Отметка выполнения; повторно выполнить нельзя</td></tr>
+        <tr><td><code>createdAt</code></td><td>string (ISO)</td><td>Время создания</td></tr>
+        <tr><td><code>completedAt</code></td><td>string (ISO)</td><td>Появляется только после выполнения</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note">
+    <div class="note__title">Что если навык удалили</div>
+    <p><code>completeTask()</code> ищет навык по <code>task.xpSkill</code>. Если такого больше нет,
+      опыт получает первый навык в списке, а игрок видит уведомление
+      «Навык задачи не найден, XP начислено на …». Награда не теряется.</p>
+  </div>
+
+  <h2>levelUpData — корневой объект игры</h2>
+
+  <pre data-lang="json" data-file="localStorage['levelUpData']">{
+  "skills": [
+    {
+      "id": "8f1c0f4e-1c8b-4a17-9a2a-5d5c0a2f1b31",
+      "name": "Default Skill",
+      "level": 2,
+      "exp": 2,
+      "desc": "Это дефолтный навык. Нажмите для прокачки.",
+      "default": true
+    },
+    {
+      "id": "b0b0f2d1-33cd-4f1a-8b12-9c7c2a44e001",
+      "name": "Английский",
+      "level": 1,
+      "exp": 3,
+      "desc": "20 новых слов в неделю",
+      "default": false
+    }
+  ],
+  "tasks": [
+    {
+      "id": "5c2f2a55-2a5f-4d6f-b0f7-8f2b6a4c9d10",
+      "name": "Отжимания",
+      "reward": 7,
+      "desc": "3 подхода",
+      "type": "daily",
+      "xpSkill": "8f1c0f4e-1c8b-4a17-9a2a-5d5c0a2f1b31",
+      "completed": true,
+      "createdAt": "2026-09-04T09:10:00.000Z",
+      "completedAt": "2026-09-04T18:41:12.512Z"
+    }
+  ]
+}</pre>
+
+  <p>Ровно этот объект скачивается кнопкой «Скачать данные» под именем <code>levelUpData.json</code>
+    и принимается кнопкой «Загрузить данные». При загрузке файл прогоняется через
+    <code>SkillsStore.normalize()</code>, поэтому испорченный или неполный JSON не сломает приложение.</p>
+
+  <h2>memoryTrainerData — прогресс тренажёра</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Поле</th><th>Тип</th><th>Описание</th></tr></thead>
+      <tbody>
+        <tr><td><code>xp</code></td><td>number</td><td>Суммарный опыт, набранный в тренажёре. Полоса вверху показывает <code>xp % 100</code></td></tr>
+        <tr><td><code>currentLevel</code></td><td>number</td><td>Самый высокий доступный (разблокированный) уровень</td></tr>
+        <tr><td><code>completedLevels</code></td><td>number[]</td><td>Список пройденных уровней. Появился при исправлении бага с потерей прогресса</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <pre data-lang="json" data-file="localStorage['memoryTrainerData']">{
+  "xp": 35,
+  "currentLevel": 3,
+  "completedLevels": [1, 2]
+}</pre>
+
+  <h4>Как параметры уровня вычисляются из его номера</h4>
+
+  <p>Узлы дерева не хранятся — они целиком выводятся из номера уровня в <code>createLevelNode()</code>:</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Параметр</th><th>Формула</th><th>Уровень 1</th><th>Уровень 5</th><th>Уровень 10</th></tr></thead>
+      <tbody>
+        <tr><td>Скорость показа</td><td><code>1 + 0.2 × (level − 1)</code></td><td>x1.0</td><td>x1.8</td><td>x2.8</td></tr>
+        <tr><td>Время на запоминание</td><td><code>4 / speed</code> секунд</td><td>4.00 с</td><td>2.22 с</td><td>1.43 с</td></tr>
+        <tr><td>Награда</td><td><code>10 + 5 × (level − 1)</code></td><td>10 XP</td><td>30 XP</td><td>55 XP</td></tr>
+        <tr><td>Длина числа/слова</td><td><code>4 + ⌊(level − 1) / 3⌋</code></td><td>4 знака</td><td>5 знаков</td><td>7 знаков</td></tr>
+        <tr><td>Тип задания</td><td><code>level % 2 === 0</code> → слово</td><td>число</td><td>число</td><td>слово</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Формат ответов API</h2>
+
+  <p>Все эндпоинты отвечают JSON одной формы, что упрощает клиентский код: успех проверяется одним
+    полем, текст сообщения всегда пригоден для показа пользователю.</p>
+
+  <pre data-lang="js" data-file="контракт ответа">// успех
+{ success: true,  message?: string, user?: PublicUser }
+
+// ошибка (400, 401, 404, 409, 429, 500)
+{ success: false, message: string }</pre>
+
+  <h2>Правила начисления опыта</h2>
+
+  <div class="diagram">EXP_PER_LEVEL = 5           (единая константа в skills-store.js)
+
+начисление:   skill.exp += награда
+нормализация: while (skill.exp >= 5) { skill.exp -= 5; skill.level += 1 }
+
+примеры:
+  было L1/0 XP  + 3 XP   →  L1, exp 3        (уровень не вырос)
+  было L1/3 XP  + 2 XP   →  L2, exp 0        (ровно один уровень)
+  было L1/0 XP  + 7 XP   →  L2, exp 2        (уровень + остаток)
+  было L1/0 XP  + 22 XP  →  L5, exp 2        (четыре уровня за раз)</div>
+
+  <div class="note note--warn">
+    <div class="note__title">Что было до исправления</div>
+    <p>Раньше проверка выполнялась через <code>if</code>, а не <code>while</code>: награда в 22 XP давала
+      один уровень, а «лишние» 15 XP оседали в поле <code>exp</code> и шкала показывала неверное значение.
+      Теперь единственная реализация правил живёт в <code>SkillsStore.applyLevelUps()</code>, и её же
+      проверяет тест <span class="badge badge--muted">pages #2</span>.</p>
+  </div>
+
+</main>
+<script src="assets/docs.js"></script>
+</body>
+</html>

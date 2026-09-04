@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>server.js построчно</title>
+  <link rel="stylesheet" href="assets/docs.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+<main class="content">
+
+  <h1>server.js построчно</h1>
+  <p class="lead">279 строк, которые делают всё серверное: константы, работа с файлом-хранилищем,
+    валидация, четыре middleware, шесть маршрутов и обработка ошибок. Ниже — каждый блок с объяснением,
+    зачем он нужен и что сломается без него.</p>
+
+  <h2>Структура файла</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Строки</th><th>Блок</th><th>Содержимое</th></tr></thead>
+      <tbody>
+        <tr><td>1–19</td><td>Шапка и импорты</td><td><code>'use strict'</code>, документирующий комментарий, пять зависимостей и три модуля Node</td></tr>
+        <tr><td>21–31</td><td>Константы</td><td>Порт, хост, путь к файлу, стоимость bcrypt, правила логина и пароля</td></tr>
+        <tr><td>37–101</td><td>Хранилище</td><td><code>readUsers</code>, <code>writeUsers</code>, <code>publicUser</code>, <code>createProfile</code>, <code>findUser</code>, <code>validateCredentials</code></td></tr>
+        <tr><td>103–143</td><td>Middleware</td><td><code>helmet</code>, <code>express.json</code>, <code>express-session</code>, <code>rate limit</code></td></tr>
+        <tr><td>146–257</td><td>Маршруты</td><td>Регистрация, вход, <code>/api/me</code>, обновление профиля, выход, устаревший алиас</td></tr>
+        <tr><td>259–279</td><td>Статика и ошибки</td><td><code>express.static</code>, JSON-404 для API, обработчик ошибок, запуск сервера, экспорт</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Константы и настройки</h2>
+
+  <pre data-lang="js" data-file="server.js, строки 21–31">const PORT = Number(process.env.PORT) || 3000;
+const HOST = process.env.HOST || '0.0.0.0';
+const USERS_FILE = process.env.USERS_FILE || path.join(__dirname, 'users.json');
+const BCRYPT_ROUNDS = Number(process.env.BCRYPT_ROUNDS) || 10;
+
+const USERNAME_RE = /^[A-Za-zА-Яа-яЁё0-9_.-]{3,32}$/u;
+const MIN_PASSWORD_LENGTH = 6;
+const MAX_PASSWORD_LENGTH = 128;</pre>
+
+  <ul>
+    <li><b><code>HOST = '0.0.0.0'</code></b> — сервер слушает все интерфейсы. Внутри Docker или превью-среды
+      привязка к <code>127.0.0.1</code> сделала бы приложение недоступным снаружи контейнера.</li>
+    <li><b><code>USERS_FILE</code> через переменную</b> — благодаря этому тесты подставляют временный файл
+      во временной директории и не портят рабочие данные.</li>
+    <li><b><code>BCRYPT_ROUNDS = 10</code></b> — компромисс: около 50–100 мс на хеш. Тесты понижают до 4,
+      иначе прогон становится ощутимо медленнее.</li>
+    <li><b>Верхняя граница пароля 128</b> — bcrypt всё равно учитывает только первые 72 байта, а без лимита
+      можно было бы прислать мегабайтную строку и заставить сервер её хешировать.</li>
+  </ul>
+
+  <h2>Работа с файлом-хранилищем</h2>
+
+  <h3>readUsers()</h3>
+
+  <div class="sig"><b>readUsers</b>(): User[]</div>
+
+  <pre data-lang="js" data-file="server.js, строки 44–58">function readUsers() {
+  try {
+    const raw = fs.readFileSync(USERS_FILE, 'utf8').trim();
+    if (!raw) return [];
+
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    if (error.code === 'ENOENT') return [];
+
+    console.error(`Не удалось прочитать ${USERS_FILE}:`, error.message);
+    return [];
+  }
+}</pre>
+
+  <p>Функция обязана быть непробиваемой: она вызывается в каждом запросе к API. Обрабатываются четыре
+    ситуации — файла нет (<code>ENOENT</code>), файл пуст, внутри не массив, внутри синтаксически битый JSON.
+    Во всех случаях возвращается пустой массив, а сервер продолжает работать.</p>
+
+  <div class="note note--danger">
+    <div class="note__title">Исправленный краш</div>
+    <p>В исходной версии было <code>JSON.parse(fs.readFileSync(usersFilePath))</code> без обработки ошибок,
+      а в репозитории лежал пустой <code>users.json</code>. <code>JSON.parse('')</code> бросает
+      <code>SyntaxError</code>, и первый же запрос к <code>/register</code> ронял процесс. Теперь на это есть
+      тест <span class="badge badge--muted">server #1</span>: «пустой users.json не роняет сервер».</p>
+  </div>
+
+  <h3>writeUsers()</h3>
+
+  <div class="sig"><b>writeUsers</b>(users: User[]): void</div>
+
+  <pre data-lang="js" data-file="server.js, строки 61–65">function writeUsers(users) {
+  const tmpFile = `${USERS_FILE}.${process.pid}.tmp`;
+  fs.writeFileSync(tmpFile, JSON.stringify(users, null, 2), 'utf8');
+  fs.renameSync(tmpFile, USERS_FILE);
+}</pre>
+
+  <p>Запись атомарная: сначала полный файл во временное имя, затем <code>rename</code> — на POSIX-системах
+    это атомарная операция. Если процесс упадёт в середине записи, на диске останется либо старая,
+    либо новая версия, но не половина JSON. В имени временного файла есть <code>process.pid</code>,
+    чтобы два процесса не мешали друг другу.</p>
+
+  <h3>publicUser(), createProfile(), findUser()</h3>
+
+  <pre data-lang="js" data-file="server.js, строки 68–81">function publicUser(user) {
+  return { username: user.username, profile: user.profile, createdAt: user.createdAt };
+}
+
+function createProfile() {
+  return { level: 1, xp: 0, skills: [] };
+}
+
+function findUser(users, username) {
+  const normalized = String(username).toLowerCase();
+  return users.find((user) => String(user.username).toLowerCase() === normalized);
+}</pre>
+
+  <ul>
+    <li><b><code>publicUser</code></b> — «белый список» полей. Единственный способ, которым пользователь
+      попадает в ответ, поэтому <code>passwordHash</code> утечь не может.</li>
+    <li><b><code>createProfile</code></b> — фабрика: возвращает <i>новый</i> объект каждому пользователю.
+      Если бы профиль был константой, все пользователи делили бы одну ссылку.</li>
+    <li><b><code>findUser</code></b> — поиск регистронезависимый, поэтому нельзя зарегистрировать
+      <code>Hunter</code> при существующем <code>hunter</code> и обмануть проверку уникальности.
+      <code>String()</code> защищает от значения не-строки в теле запроса.</li>
+  </ul>
+
+  <h3>validateCredentials()</h3>
+
+  <div class="sig"><b>validateCredentials</b>(body: unknown): string | null   <span style="color:var(--text-dim)">// текст ошибки или null</span></div>
+
+  <pre data-lang="js" data-file="server.js, строки 86–101">const username = typeof body?.username === 'string' ? body.username.trim() : '';
+const password = typeof body?.password === 'string' ? body.password : '';
+
+if (!username || !password) {
+  return 'Укажите логин и пароль.';
+}
+if (!USERNAME_RE.test(username)) {
+  return 'Логин: 3–32 символа, буквы, цифры и символы _ . -';
+}
+if (password.length &lt; MIN_PASSWORD_LENGTH || password.length &gt; MAX_PASSWORD_LENGTH) {
+  return `Пароль должен быть от ${MIN_PASSWORD_LENGTH} до ${MAX_PASSWORD_LENGTH} символов.`;
+}
+return null;</pre>
+
+  <p>Проверка типов через <code>typeof</code> обязательна: клиент может прислать
+    <code>{"username": {"$ne": null}}</code> или число. Логин обрезается по краям, но пароль —
+    никогда: пробелы в пароле значимы. Возврат строки-ошибки вместо исключения делает код маршрутов
+    линейным: <code>const error = validateCredentials(req.body); if (error) return res.status(400)…</code></p>
+
+  <h2>Middleware</h2>
+
+  <h3>helmet</h3>
+
+  <pre data-lang="js" data-file="server.js, строки 105–114">app.use(
+  helmet({
+    // Страницы подключают Tailwind/Font Awesome с CDN, а сам сайт может
+    // открываться во встроенном превью — поэтому CSP и frameguard выключены.
+    contentSecurityPolicy: false,
+    frameguard: false,
+    crossOriginEmbedderPolicy: false,
+    crossOriginResourcePolicy: false,
+  })
+);</pre>
+
+  <p>Остаются включёнными <code>X-Content-Type-Options: nosniff</code>,
+    <code>Referrer-Policy</code>, <code>Strict-Transport-Security</code> и другие. Четыре опции отключены
+    осознанно: строгий CSP заблокировал бы Tailwind с CDN и инлайновые скрипты страниц, а
+    <code>frameguard</code> запретил бы открывать приложение во встроенном iframe-превью.</p>
+
+  <div class="note note--warn">
+    <div class="note__title">Как включить CSP правильно</div>
+    <p>Нужно перенести Tailwind и Font Awesome в локальные файлы, вынести инлайновые скрипты в
+      <code>assets/*.js</code> и затем задать политику вида
+      <code>default-src 'self'</code>. Тогда <code>contentSecurityPolicy</code> можно вернуть.</p>
+  </div>
+
+  <h3>express.json и сессии</h3>
+
+  <pre data-lang="js" data-file="server.js, строки 116–143">app.use(express.json({ limit: '16kb' }));
+
+app.use(
+  session({
+    name: 'sl.sid',
+    secret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex'),
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: 1000 * 60 * 60 * 24 * 7, // 7 дней
+    },
+  })
+);</pre>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Опция</th><th>Значение</th><th>Зачем именно так</th></tr></thead>
+      <tbody>
+        <tr><td><code>express.json({ limit })</code></td><td>16 КБ</td><td>Заменил устаревший <code>body-parser</code>; лимит отсекает попытки залить огромное тело</td></tr>
+        <tr><td><code>name</code></td><td><code>sl.sid</code></td><td>Своё имя вместо стандартного <code>connect.sid</code> — меньше сигналов о стеке</td></tr>
+        <tr><td><code>secret</code></td><td>env или случайные 32 байта</td><td>Подписывает куку. Случайный фолбэк безопасен, но сбрасывает сессии при рестарте</td></tr>
+        <tr><td><code>resave: false</code></td><td>—</td><td>Не переписывать сессию, если она не менялась</td></tr>
+        <tr><td><code>saveUninitialized: false</code></td><td>—</td><td>Не создавать сессию анонимному посетителю: кука появляется только после входа</td></tr>
+        <tr><td><code>httpOnly: true</code></td><td>—</td><td>JavaScript не может прочитать куку — украсть её через XSS не выйдет</td></tr>
+        <tr><td><code>sameSite: 'lax'</code></td><td>—</td><td>Базовая защита от CSRF: кука не уходит в межсайтовых POST-запросах</td></tr>
+        <tr><td><code>secure</code></td><td>в продакшене</td><td>Кука только по HTTPS. В dev выключено, иначе вход не заработает на <code>http://localhost</code></td></tr>
+        <tr><td><code>maxAge</code></td><td>7 дней</td><td>Срок жизни сессии</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Ограничение частоты</h3>
+
+  <pre data-lang="js" data-file="server.js, строки 136–143">const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { success: false, message: 'Слишком много попыток. Повторите позже.' },
+});</pre>
+
+  <p>20 попыток за 15 минут с одного IP — этого достаточно человеку и мало для перебора паролей.
+    Лимитер вешается только на три маршрута аутентификации: чтение статики и <code>/api/me</code>
+    не ограничены. Ответ при превышении — 429 в том же JSON-формате, что и остальные ошибки.</p>
+
+  <h2>Маршруты</h2>
+
+  <h3>registerHandler</h3>
+
+  <pre data-lang="js" data-file="server.js, строки 146–177 (сокращённо)">async function registerHandler(req, res, next) {
+  try {
+    const error = validateCredentials(req.body);
+    if (error) return res.status(400).json({ success: false, message: error });
+
+    const username = req.body.username.trim();
+    const users = readUsers();
+
+    if (findUser(users, username)) {
+      return res.status(409).json({ success: false, message: 'Пользователь с таким логином уже существует.' });
+    }
+
+    const user = {
+      username,
+      passwordHash: await bcrypt.hash(req.body.password, BCRYPT_ROUNDS),
+      profile: createProfile(),
+      createdAt: new Date().toISOString(),
+    };
+
+    users.push(user);
+    writeUsers(users);
+
+    req.session.username = user.username;
+    return res.status(201).json({ success: true, message: 'Регистрация успешна', user: publicUser(user) });
+  } catch (err) {
+    return next(err);
+  }
+}</pre>
+
+  <p>Порядок шагов важен: сначала дешёвая валидация, потом чтение файла, и только затем дорогой
+    <code>bcrypt.hash()</code> — так невалидные запросы не нагружают процессор. После успешной
+    регистрации пользователь сразу авторизован: в сессию кладётся только <code>username</code>,
+    а не весь объект, чтобы данные не устаревали.</p>
+
+  <h3>loginHandler</h3>
+
+  <pre data-lang="js" data-file="server.js, строки 179–201 (сокращённо)">const users = readUsers();
+const user = findUser(users, req.body.username.trim());
+
+// Одинаковый ответ для «нет пользователя» и «неверный пароль»,
+// чтобы нельзя было перебором узнать существующие логины.
+const ok = user ? await bcrypt.compare(req.body.password, user.passwordHash) : false;
+if (!ok) {
+  return res.status(401).json({ success: false, message: 'Неверный логин или пароль.' });
+}
+
+req.session.username = user.username;
+return res.json({ success: true, message: 'Вход выполнен', user: publicUser(user) });</pre>
+
+  <p><code>bcrypt.compare()</code> сравнивает хеши за постоянное время, поэтому по длительности ответа
+    нельзя догадаться, совпал ли префикс пароля. Формулировка ошибки намеренно общая — «Неверный логин
+    или пароль»: она не подтверждает существование учётки.</p>
+
+  <h3>GET /api/me</h3>
+
+  <pre data-lang="js" data-file="server.js, строки 206–220">app.get('/api/me', (req, res) => {
+  if (!req.session.username) {
+    return res.status(401).json({ success: false, message: 'Не авторизован' });
+  }
+
+  const user = findUser(readUsers(), req.session.username);
+  if (!user) {
+    return req.session.destroy(() =>
+      res.status(401).json({ success: false, message: 'Не авторизован' })
+    );
+  }
+
+  return res.json({ success: true, user: publicUser(user) });
+});</pre>
+
+  <p>Второй случай — «сессия есть, а пользователя уже нет» (например, запись удалили из файла вручную).
+    Тогда сессия уничтожается, чтобы клиент не оставался в подвешенном состоянии.</p>
+
+  <h3>PUT /api/me/profile</h3>
+
+  <pre data-lang="js" data-file="server.js, строки 222–242 (сокращённо)">const { level, xp, skills } = req.body ?? {};
+if (!Number.isFinite(level) || level &lt; 1 || !Number.isFinite(xp) || xp &lt; 0 || !Array.isArray(skills)) {
+  return res.status(400).json({ success: false, message: 'Некорректный профиль.' });
+}
+
+user.profile = { level, xp, skills: skills.slice(0, 200) };
+writeUsers(users);</pre>
+
+  <p><code>Number.isFinite</code> отсекает строки, <code>NaN</code> и <code>Infinity</code>.
+    Профиль пересобирается из трёх проверенных полей — прислать лишние ключи и записать их в файл нельзя.
+    <code>slice(0, 200)</code> ограничивает размер массива навыков.</p>
+
+  <h3>POST /api/logout</h3>
+
+  <pre data-lang="js" data-file="server.js, строки 244–250">app.post('/api/logout', (req, res) => {
+  req.session.destroy(() => {
+    res.clearCookie('sl.sid');
+    res.json({ success: true, message: 'Выход выполнен' });
+  });
+});</pre>
+
+  <p>Сессия удаляется на сервере, а не только «забывается» браузером: даже если куку перехватили,
+    после выхода она бесполезна. Метод <code>POST</code>, а не <code>GET</code> — чтобы выход нельзя
+    было вызвать простым переходом по ссылке или загрузкой картинки.</p>
+
+  <h3>POST /register — устаревший алиас</h3>
+
+  <pre data-lang="js" data-file="server.js, строки 252–257">app.post('/register', authLimiter, (req, res, next) => {
+  const exists = Boolean(findUser(readUsers(), req.body?.username ?? ''));
+  return exists ? loginHandler(req, res, next) : registerHandler(req, res, next);
+});</pre>
+
+  <p>Старый эндпоинт вёл себя как «войти или зарегистрировать». Чтобы не ломать внешних клиентов,
+    поведение сохранено, но теперь оно реализовано вызовом тех же обработчиков — с хешированием,
+    валидацией и rate-лимитом. Именно ради этого маршрута логика вынесена в именованные функции
+    <code>registerHandler</code> и <code>loginHandler</code>, а не написана прямо в <code>app.post()</code>.</p>
+
+  <h2>Статика, 404 и ошибки</h2>
+
+  <pre data-lang="js" data-file="server.js, строки 261–279">app.use(express.static(__dirname, { extensions: ['html'] }));
+
+app.use('/api', (req, res) => {
+  res.status(404).json({ success: false, message: 'Метод не найден' });
+});
+
+app.use((err, req, res, next) => {
+  console.error('Необработанная ошибка:', err);
+  res.status(500).json({ success: false, message: 'Внутренняя ошибка сервера' });
+});
+
+if (require.main === module) {
+  app.listen(PORT, HOST, () => {
+    console.log(`Сервер запущен на http://localhost:${PORT}`);
+  });
+}
+
+module.exports = app;</pre>
+
+  <ul>
+    <li><b><code>extensions: ['html']</code></b> — <code>/login</code> отдаёт <code>login.html</code>,
+      расширение в адресе необязательно.</li>
+    <li><b>Статика после API</b> — иначе файл с именем как у маршрута мог бы перехватить запрос.</li>
+    <li><b>JSON-404 для <code>/api</code></b> — клиент всегда получает предсказуемый JSON, а не HTML,
+      который сломает <code>response.json()</code>.</li>
+    <li><b>Четыре аргумента у обработчика ошибок</b> — обязательное условие Express, иначе он будет
+      воспринят как обычный middleware. Стек пишется в лог сервера, наружу уходит нейтральный текст.</li>
+    <li><b><code>require.main === module</code></b> — сервер слушает порт только при прямом запуске.
+      Тесты импортируют <code>app</code> и поднимают его на случайном свободном порту.</li>
+  </ul>
+
+  <div class="note note--ok">
+    <div class="note__title">Проверка своими руками</div>
+    <p><code>curl -s localhost:3000/api/unknown</code> → <code>{"success":false,"message":"Метод не найден"}</code>
+      со статусом 404, а <code>curl -sI localhost:3000/</code> не содержит заголовка <code>X-Powered-By</code>:
+      он снят строкой <code>app.disable('x-powered-by')</code>.</p>
+  </div>
+
+</main>
+<script src="assets/docs.js"></script>
+</body>
+</html>

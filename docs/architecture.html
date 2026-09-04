@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Архитектура</title>
+  <link rel="stylesheet" href="assets/docs.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+<main class="content">
+
+  <h1>Архитектура</h1>
+  <p class="lead">Проект состоит из двух почти независимых половин: игровая логика целиком живёт в браузере,
+    а сервер отвечает только за раздачу файлов и учётные записи. Ниже — как это связано и что происходит
+    при каждом действии пользователя.</p>
+
+  <h2>Общая схема</h2>
+
+  <div class="diagram">┌──────────────────────────────── БРАУЗЕР ────────────────────────────────┐
+│                                                                          │
+│  index.html          page2.html         login.html      userinfo.html    │
+│  навыки/задания      тренажёр памяти    вход/регистр.   профиль          │
+│  таймер                                                                  │
+│      │                    │                  │               │           │
+│      └────────┬───────────┘                  └───────┬───────┘           │
+│               ▼                                      │                   │
+│      assets/skills-store.js                          │                   │
+│      (общий модуль навыков)                          │                   │
+│               │                                      │                   │
+│               ▼                                      │                   │
+│      localStorage                                    │  fetch + куки     │
+│      ├── levelUpData        (навыки, задания)        │  credentials:     │
+│      └── memoryTrainerData  (прогресс тренажёра)     │  same-origin      │
+│                                                      │                   │
+└──────────────────────────────────────────────────────┼───────────────────┘
+                                                       │ HTTP
+┌──────────────────────────── СЕРВЕР (Node.js) ────────┼───────────────────┐
+│                                                      ▼                   │
+│  server.js                                                               │
+│  ├── helmet → express.json → express-session → rate limit                │
+│  ├── POST /api/register   POST /api/login   POST /api/logout             │
+│  ├── GET  /api/me         PUT  /api/me/profile                           │
+│  ├── POST /register       (устаревший алиас)                             │
+│  ├── express.static(__dirname)   ← отдаёт html/css/js/png и docs/        │
+│  └── 404 для /api/* и общий обработчик ошибок                            │
+│                              │                                           │
+│                              ▼                                           │
+│                      users.json (bcrypt-хеши, атомарная запись)          │
+└──────────────────────────────────────────────────────────────────────────┘</div>
+
+  <h2>Ключевое архитектурное решение</h2>
+
+  <div class="grid">
+    <div class="card">
+      <div class="card__title">Игра — клиентская</div>
+      <p>Навыки, задания, таймер и тренажёр не требуют сети. Всё состояние в <code>localStorage</code>,
+        поэтому приложение работает офлайн и его можно выложить статикой.</p>
+    </div>
+    <div class="card">
+      <div class="card__title">Аккаунты — серверные</div>
+      <p>Пароль нельзя проверять на клиенте: любой сможет посмотреть исходник. Регистрация, вход и профиль —
+        только через API, состояние входа держит httpOnly-кука.</p>
+    </div>
+    <div class="card">
+      <div class="card__title">Одно хранилище навыков</div>
+      <p><code>skills-store.js</code> — единственный модуль, который знает формат данных. Обе игровые
+        страницы работают через него, поэтому опыт из тренажёра попадает в навыки на главной.</p>
+    </div>
+  </div>
+
+  <div class="note note--warn">
+    <div class="note__title">Историческое противоречие, которое было устранено</div>
+    <p>В исходной версии <code>login.html</code> вообще не обращался к серверу — он вёл свой список
+      пользователей в <code>localStorage</code>, а <code>server.js</code> вёл свой в <code>users.json</code>.
+      Две «базы» не были связаны, а бэкенд фактически был мёртвым кодом. Теперь источник истины
+      для учёток один — сервер. Подробности: <a href="changelog.html">Что изменилось</a>.</p>
+  </div>
+
+  <h2>Жизненный цикл HTTP-запроса</h2>
+
+  <p>Порядок middleware в <code>server.js</code> определяет всё поведение сервера. Запрос проходит
+    цепочку сверху вниз и останавливается на первом обработчике, который отправил ответ.</p>
+
+  <div class="flow">
+    <div class="flow__step"><b>1. helmet</b>Проставляет защитные заголовки. CSP и frameguard отключены: страницы тянут Tailwind с CDN и должны открываться во встроенном превью</div>
+    <div class="flow__step"><b>2. express.json</b>Разбирает тело JSON, лимит 16 КБ — защита от гигантских payload</div>
+    <div class="flow__step"><b>3. session</b>Читает куку <code>sl.sid</code>, подставляет <code>req.session</code></div>
+    <div class="flow__step"><b>4. rate limit</b>Только на <code>/api/register</code>, <code>/api/login</code>, <code>/register</code>: 20 запросов / 15 минут на IP</div>
+    <div class="flow__step"><b>5. Роуты API</b>Валидация → работа с users.json → JSON-ответ без пароля</div>
+    <div class="flow__step"><b>6. express.static</b>Если ни один роут не сработал — отдаёт файл из корня репозитория</div>
+    <div class="flow__step"><b>7. 404 для /api</b>Неизвестный метод API получает JSON, а не HTML-страницу</div>
+    <div class="flow__step"><b>8. Обработчик ошибок</b>Логирует исключение и отвечает 500 без утечки стека</div>
+  </div>
+
+  <h2>Сценарий: регистрация и вход</h2>
+
+  <div class="diagram">Пользователь            login.html                server.js                 users.json
+     │                       │                         │                          │
+     │ вводит логин/пароль   │                         │                          │
+     ├──────────────────────▶│                         │                          │
+     │                       │ POST /api/register      │                          │
+     │                       ├────────────────────────▶│                          │
+     │                       │                         │ validateCredentials()    │
+     │                       │                         │ readUsers()  ───────────▶│
+     │                       │                         │◀── массив пользователей  │
+     │                       │                         │ findUser() → занят?      │
+     │                       │                         │   да  → 409              │
+     │                       │                         │   нет → bcrypt.hash()    │
+     │                       │                         │ writeUsers() ───────────▶│
+     │                       │                         │ req.session.username = … │
+     │                       │◀── 201 + Set-Cookie ────┤                          │
+     │                       │    (пароля в ответе нет)│                          │
+     │◀─ редирект на         │                         │                          │
+     │   userinfo.html       │                         │                          │
+     │                       │ GET /api/me (с кукой)   │                          │
+     │                       ├────────────────────────▶│ читает сессию → 200      │
+     │◀─ имя, уровень, XP ───┤                         │                          │</div>
+
+  <p>Пароль существует ровно в трёх местах и нигде больше: поле формы, тело POST-запроса, аргумент
+    <code>bcrypt.hash()</code>. На диск попадает только хеш, в ответ API — только
+    <code>{ username, profile, createdAt }</code>.</p>
+
+  <h2>Сценарий: выполнение задания</h2>
+
+  <div class="diagram">клик «Выполнить»
+   └─▶ completeTask(id)                    index.html
+        ├─ найти задачу в data.tasks
+        ├─ уже выполнена? → уведомление и выход
+        ├─ найти навык по task.xpSkill (или взять первый)
+        ├─ skill.exp += reward
+        ├─ checkLevelUp(skill)
+        │    └─▶ SkillsStore.applyLevelUps(skill)      skills-store.js
+        │         while (exp >= 5) { exp -= 5; level++ }
+        ├─ task.completed = true; task.completedAt = ISO-дата
+        ├─ saveData() ──▶ localStorage['levelUpData']
+        └─ renderTasks() + renderSkill() + showNotification()</div>
+
+  <h2>Сценарий: тренировка памяти</h2>
+
+  <div class="diagram">клик по узлу дерева
+   └─▶ startTraining(node)                 page2.html
+        ├─ уровень заблокирован или пройден? → выход
+        ├─ сгенерировать число или слово по data-атрибутам узла
+        ├─ показать его на 4 / speed секунд (интервал 100 мс)
+        └─ по истечении времени → nextStage(): показать поле ввода
+
+   ввод ответа → checkAnswer()
+        ├─ слово: сравнение без учёта регистра; число: как есть
+        ├─ неверно → сообщение с правильным ответом
+        └─ верно  →
+             ├─ узел получает класс completed, уровень в completedLevels
+             ├─ updateXP(xpReward)
+             │    ├─ renderXp() + saveProgress() ──▶ localStorage['memoryTrainerData']
+             │    └─ SkillsStore.awardXp(xp)     ──▶ localStorage['levelUpData']
+             ├─ разблокировать/создать следующий узел
+             └─ updateAllConnections(): перерисовать линии дерева</div>
+
+  <div class="note">
+    <div class="note__title">Почему два ключа localStorage</div>
+    <p><code>memoryTrainerData</code> хранит именно прогресс дерева (какие уровни пройдены и сколько
+      набрано «тренажёрного» XP) — это состояние экрана. <code>levelUpData</code> хранит навыки и задания,
+      то есть общий прогресс игрока. Тренажёр пишет в оба: своё состояние — себе, награду — в общие навыки.</p>
+  </div>
+
+  <h2>Границы ответственности</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Компонент</th><th>Отвечает за</th><th>Не отвечает за</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>server.js</code></td>
+          <td>Учётки, сессии, валидация, раздача статики</td>
+          <td>Игровую логику: сервер ничего не знает про задания и таймер</td>
+        </tr>
+        <tr>
+          <td><code>skills-store.js</code></td>
+          <td>Формат данных навыков, нормализация, начисление XP, повышение уровней</td>
+          <td>Рендеринг и DOM — модуль не трогает интерфейс</td>
+        </tr>
+        <tr>
+          <td><code>index.html</code></td>
+          <td>Интерфейс навыков, заданий, таймера, импорт/экспорт</td>
+          <td>Правила уровней — делегируются в store</td>
+        </tr>
+        <tr>
+          <td><code>page2.html</code></td>
+          <td>Дерево уровней, генерация заданий на память, drag-навигация</td>
+          <td>Хранение общих навыков — тоже через store</td>
+        </tr>
+        <tr>
+          <td><code>login.html</code> / <code>userinfo.html</code></td>
+          <td>Формы и отображение профиля</td>
+          <td>Проверку пароля — только сервер</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Что осознанно упрощено</h2>
+
+  <ul>
+    <li><b>Файл вместо базы данных.</b> <code>users.json</code> читается и пишется целиком. Для десятков
+      пользователей этого достаточно; запись атомарная (через временный файл и <code>rename</code>),
+      но при тысячах записей и параллельных запросах нужен SQLite или Postgres.</li>
+    <li><b>Сессии в памяти.</b> <code>express-session</code> использует MemoryStore по умолчанию: после
+      рестарта сессии теряются, горизонтальное масштабирование невозможно. Для продакшена — Redis-store.</li>
+    <li><b>Игровой прогресс не синхронизируется между устройствами.</b> Эндпоинт
+      <code>PUT /api/me/profile</code> для этого готов, но интерфейс пока пишет только в localStorage;
+      перенос — через кнопки экспорта и импорта JSON.</li>
+    <li><b>Tailwind с CDN.</b> Удобно для одного файла без сборки, но в офлайне главная теряет стили и
+      в консоли появляется предупреждение о непригодности CDN-сборки для продакшена.</li>
+  </ul>
+
+</main>
+<script src="assets/docs.js"></script>
+</body>
+</html>

@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Тесты и CI</title>
+  <link rel="stylesheet" href="assets/docs.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+<main class="content">
+
+  <h1>Тесты и CI</h1>
+  <p class="lead">19 автотестов без единого фреймворка: только встроенный <code>node:test</code> и jsdom.
+    Девять проверяют API, десять — реальные страницы с исполнением их скриптов. Ниже каждый тест по отдельности.</p>
+
+  <h2>Запуск</h2>
+
+  <pre data-lang="bash" data-file="терминал">npm test                              # все 19 тестов
+node --test test/server.test.js       # только API
+node --test test/pages.test.js        # только страницы
+node --test --test-name-pattern="XSS" test/*.test.js   # по имени</pre>
+
+  <pre data-lang="bash" data-file="ожидаемый результат"># tests 19
+# pass 19
+# fail 0
+# duration_ms 4267</pre>
+
+  <h2>Почему без Jest</h2>
+
+  <div class="grid">
+    <div class="card">
+      <div class="card__title">Ноль лишних зависимостей</div>
+      <p><code>node:test</code> встроен в Node 18+. Единственная dev-зависимость — jsdom, и та нужна
+        только для тестов страниц.</p>
+    </div>
+    <div class="card">
+      <div class="card__title">Скорость</div>
+      <p>Полный прогон около четырёх секунд, без прогрева трансформеров и без конфигурации.</p>
+    </div>
+    <div class="card">
+      <div class="card__title">Соответствие проекту</div>
+      <p>В приложении нет сборки и нет транспиляции — тестам они тоже не нужны.</p>
+    </div>
+  </div>
+
+  <h2>test/server.test.js — API</h2>
+
+  <p>Стенд поднимает настоящее приложение Express на случайном порту и ходит в него обычным
+    <code>fetch</code>. Ключевой приём — изоляция хранилища:</p>
+
+  <pre data-lang="js" data-file="подготовка окружения">// Изолированное хранилище: тесты не должны трогать реальный users.json.
+const tmpUsersFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'sl-test-')), 'users.json');
+process.env.USERS_FILE = tmpUsersFile;
+process.env.SESSION_SECRET = 'test-secret';
+process.env.BCRYPT_ROUNDS = '4';
+
+const app = require('../server.js');
+
+test.before(async () =&gt; {
+  await new Promise((resolve) =&gt; { server = app.listen(0, '127.0.0.1', resolve); });
+  baseUrl = `http://127.0.0.1:${server.address().port}`;
+});
+
+test.after(() =&gt; {
+  server?.close();
+  fs.rmSync(path.dirname(tmpUsersFile), { recursive: true, force: true });
+});</pre>
+
+  <p>Переменные окружения выставляются <b>до</b> <code>require('../server.js')</code> — иначе модуль
+    прочитал бы значения по умолчанию. Порт <code>0</code> означает «любой свободный», поэтому тесты
+    не конфликтуют с запущенным сервером разработки. Стоимость bcrypt снижена до 4 ради скорости.</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>#</th><th>Тест</th><th>Что именно проверяет</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>пустой users.json не роняет сервер</td><td>Записывает в файл пустую строку и делает запрос: сервер отвечает 401, а не падает. Регрессия на исходный краш <code>JSON.parse('')</code></td></tr>
+        <tr><td>2</td><td>регистрация создаёт пользователя и не возвращает пароль</td><td>201, <code>user.username</code> совпадает, полей <code>password</code> и <code>passwordHash</code> в ответе нет</td></tr>
+        <tr><td>3</td><td>пароль хранится только в виде хеша</td><td>Читает файл с диска: поля <code>password</code> нет, <code>passwordHash</code> соответствует <code>/^\$2[aby]\$/</code></td></tr>
+        <tr><td>4</td><td>повторная регистрация того же логина отклоняется</td><td>Второй запрос с тем же логином → 409</td></tr>
+        <tr><td>5</td><td>слабые данные не проходят валидацию</td><td>Короткий логин, короткий пароль и пустое тело — все три дают 400</td></tr>
+        <tr><td>6</td><td>вход с неверным паролем возвращает 401</td><td>Проверка отказа без утечки информации о существовании учётки</td></tr>
+        <tr><td>7</td><td>сессия: вход → /api/me → выход</td><td>Кука <code>sl.sid</code> выдана, <code>/api/me</code> отдаёт пользователя, после <code>/api/logout</code> — снова 401</td></tr>
+        <tr><td>8</td><td>профиль сохраняется только авторизованному</td><td>Без куки 401; с кукой профиль сохраняется; некорректный профиль (<code>level: 0</code>, <code>xp: -5</code>) → 400</td></tr>
+        <tr><td>9</td><td>несуществующий метод API отдаёт JSON 404</td><td><code>/api/unknown</code> возвращает JSON, а не HTML-страницу</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <pre data-lang="js" data-file="пример: тест сессии">const login = await api('/api/login', {
+  method: 'POST',
+  body: JSON.stringify({ username: 'hunter', password: 'secret123' }),
+});
+const cookie = login.headers.getSetCookie().map((c) =&gt; c.split(';')[0]).join('; ');
+assert.match(cookie, /sl\.sid=/);
+
+const me = await api('/api/me', { headers: { cookie } });
+assert.equal((await me.json()).user.username, 'hunter');
+
+await api('/api/logout', { method: 'POST', headers: { cookie } });
+
+const after = await api('/api/me', { headers: { cookie } });
+assert.equal(after.status, 401);</pre>
+
+  <h2>test/pages.test.js — страницы в jsdom</h2>
+
+  <p>Эти тесты не читают HTML как текст (хотя есть и такие проверки) — они <b>исполняют</b> скрипты
+    страниц в настоящем DOM. Благодаря этому любая ошибка вида «функция не определена» ломает сборку.</p>
+
+  <h3>Стенд загрузки страницы</h3>
+
+  <pre data-lang="js" data-file="перехват сетевых запросов">/** Отдаёт файлы проекта с диска и заглушает внешние CDN — тесты не ходят в сеть. */
+const localFilesInterceptor = requestInterceptor((request) =&gt; {
+  const url = new URL(request.url);
+
+  if (url.hostname !== 'localhost') {
+    return new Response('', { headers: { 'Content-Type': 'text/javascript' } });
+  }
+
+  const filePath = path.join(ROOT, decodeURIComponent(url.pathname));
+  if (!filePath.startsWith(ROOT) || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+    return new Response('', { status: 404 });
+  }
+
+  return new Response(fs.readFileSync(filePath), {
+    headers: { 'Content-Type': MIME[path.extname(filePath)] || 'application/octet-stream' },
+  });
+});</pre>
+
+  <pre data-lang="js" data-file="загрузка страницы с заглушками">const dom = new JSDOM(fs.readFileSync(path.join(ROOT, file), 'utf8'), {
+  url: `http://localhost/${file}`,
+  runScripts: 'dangerously',
+  resources: { interceptors: [localFilesInterceptor] },
+  pretendToBeVisual: true,
+  virtualConsole,
+  beforeParse(window) {
+    // Canvas и сетевые вызовы в jsdom не поддерживаются — подменяем заглушками.
+    window.HTMLCanvasElement.prototype.getContext = () =&gt; ({
+      clearRect() {}, beginPath() {}, arc() {}, fill() {},
+    });
+    window.requestAnimationFrame = () =&gt; 0;
+    window.fetch = () =&gt; Promise.resolve({ ok: false, status: 401, json: async () =&gt; ({}) });
+  },
+});
+
+// … ожидание загрузки …
+assert.deepEqual(errors.map(String), [], `Ошибки JS на странице ${file}`);</pre>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Приём</th><th>Зачем</th></tr></thead>
+      <tbody>
+        <tr><td><code>runScripts: 'dangerously'</code></td><td>Разрешает исполнять скрипты страницы — иначе тест проверял бы только разметку</td></tr>
+        <tr><td>Перехватчик запросов</td><td>Локальные файлы читаются с диска, CDN отдаёт пустой ответ: тесты не зависят от сети</td></tr>
+        <tr><td>Заглушка <code>getContext</code></td><td>jsdom не умеет canvas, а главная рисует звёздное небо</td></tr>
+        <tr><td>Заглушка <code>fetch</code> → 401</td><td>Эмулирует гостя: страница ходит в <code>/api/me</code> при загрузке</td></tr>
+        <tr><td>Сбор <code>jsdomError</code></td><td>Любое необработанное исключение в скрипте страницы валит тест</td></tr>
+        <tr><td>Проверка <code>filePath.startsWith(ROOT)</code></td><td>Защита самого стенда от выхода за пределы проекта</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note note--ok">
+    <div class="note__title">Этот стенд уже поймал настоящую ошибку</div>
+    <p>При разработке модуль подключили как <code>&lt;script src="assets/skills-store.js" defer&gt;</code>.
+      В браузере это дало бы <code>ReferenceError: SkillsStore is not defined</code> — то есть полностью
+      неработающую главную страницу. Тест упал сразу же, атрибут <code>defer</code> был убран.</p>
+  </div>
+
+  <h3>Список тестов страниц</h3>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>#</th><th>Тест</th><th>Что проверяет</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>index.html: скрипты исполняются, навык и опыт отрисованы</td><td>Нет ошибок JS; отрисованы «Default Skill», уровень 1, подпись «0 / 5 XP»; элемента <code>#guiSound</code> не существует</td></tr>
+        <tr><td>2</td><td>checkLevelUp повышает несколько уровней сразу</td><td>Навык с 22 XP получает 4 уровня и сохраняет остаток 2 XP</td></tr>
+        <tr><td>3</td><td>задание начисляет XP навыку</td><td>Создаёт задачу на 7 XP через реальную форму, выполняет её и проверяет в localStorage: уровень 2, остаток 2 XP, <code>completed: true</code></td></tr>
+        <tr><td>4</td><td>менеджер навыков открывается и показывает список</td><td>Окно открылось, строк столько же, сколько навыков, закрытие работает</td></tr>
+        <tr><td>5</td><td>в сайдбаре нет пустых ссылок</td><td>В разметке отсутствует <code>href="#"</code></td></tr>
+        <tr><td>6</td><td>page2: прогресс сохраняется и опыт уходит в общие навыки</td><td>Проходит первый уровень: узел получил класс <code>completed</code>, <code>completedLevels: [1]</code>, XP сохранён, навык в <code>levelUpData</code> получил опыт</td></tr>
+        <tr><td>7</td><td>page2: слова засчитываются без учёта регистра</td><td>Ответ строчными буквами принят, в отклике нет слова «Неправильно»</td></tr>
+        <tr><td>8</td><td>page2: пройденные уровни восстанавливаются после перезагрузки</td><td>Прогресс переносится во «вторую вкладку», дерево пересобирается — пройденный уровень остаётся пройденным</td></tr>
+        <tr><td>9</td><td>userinfo.html без innerHTML</td><td>Регулярное выражение <code>/\.innerHTML\s*=/</code> не находит совпадений — защита от XSS не откатится</td></tr>
+        <tr><td>10</td><td>login.html не сохраняет пароль в localStorage</td><td>Нет <code>localStorage.setItem</code>, есть обращения к <code>/api/login</code> и <code>/api/register</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <pre data-lang="js" data-file="пример: прохождение уровня в тренажёре">/** Проходит первый уровень тренажёра: показанный ответ берём из DOM. */
+function solveFirstNode(window, transform = (value) =&gt; value) {
+  const node = window.document.querySelector('.skill-node[data-level="1"]');
+  assert.ok(node, 'первый узел дерева создан');
+
+  window.startTraining(node);
+  const shown = window.document.getElementById('numberDisplay').textContent;
+  window.document.getElementById('numberInput').value = transform(shown);
+  window.checkAnswer();
+
+  return { node, shown };
+}</pre>
+
+  <div class="note">
+    <div class="note__title">Тонкость: почему ответ читается из DOM</div>
+    <p>Переменные страниц объявлены через <code>let</code> и не становятся свойствами <code>window</code> —
+      обратиться к <code>window.currentNumber</code> нельзя ни в браузере, ни в jsdom. Зато объявления
+      <code>function</code> в window попадают, поэтому <code>window.startTraining()</code> и
+      <code>window.checkAnswer()</code> вызываются напрямую, а «загаданное» значение тест читает
+      из элемента <code>#numberDisplay</code> — ровно так же, как его видит пользователь.</p>
+  </div>
+
+  <h2>Непрерывная интеграция</h2>
+
+  <pre data-lang="yaml" data-file=".github/workflows/ci.yml">name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x, 22.x]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+      - run: npm ci
+      - run: npm test</pre>
+
+  <ul>
+    <li><b>Матрица версий</b> — тот же код проверяется на Node 18, 20 и 22: минимально поддерживаемой,
+      предыдущей LTS и текущей.</li>
+    <li><b><code>npm ci</code>, а не <code>npm install</code></b> — строгая установка ровно из
+      <code>package-lock.json</code>.</li>
+    <li><b><code>cache: npm</code></b> — кеширование зависимостей между запусками.</li>
+    <li><b>Триггеры</b> — любой push в любую ветку и каждый pull request.</li>
+  </ul>
+
+  <h2>Чего тесты не покрывают</h2>
+
+  <ul>
+    <li>Визуальную часть: CSS, анимации, адаптивность — jsdom не занимается версткой и рендерингом.</li>
+    <li>Работу таймера на главной: он завязан на реальное время и <code>setInterval</code>.</li>
+    <li>Перетаскивание дерева: события мыши и касаний в jsdom эмулируются неполно.</li>
+    <li>Реальную работу rate limit: тест потребовал бы 21 запроса и заметно замедлил бы прогон.</li>
+    <li>Кросс-браузерность: проверяется только среда jsdom.</li>
+  </ul>
+
+  <h2>Как добавить свой тест</h2>
+
+  <pre data-lang="js" data-file="шаблон для API">test('описание того, что проверяем', async () =&gt; {
+  const res = await api('/api/…', {
+    method: 'POST',
+    body: JSON.stringify({ /* … */ }),
+  });
+  const body = await res.json();
+
+  assert.equal(res.status, 200);
+  assert.equal(body.success, true);
+});</pre>
+
+  <pre data-lang="js" data-file="шаблон для страницы">test('index.html: описание', async () =&gt; {
+  const window = await loadPage('index.html');   // упадёт при любой ошибке JS
+
+  window.addNewSkill();                          // функции доступны напрямую
+
+  const stored = JSON.parse(window.localStorage.getItem('levelUpData'));
+  assert.equal(stored.skills.length, 2);
+});</pre>
+
+  <p>Файл достаточно положить в <code>test/</code> с именем <code>*.test.js</code> — скрипт
+    <code>npm test</code> подхватит его автоматически.</p>
+
+</main>
+<script src="assets/docs.js"></script>
+</body>
+</html>
