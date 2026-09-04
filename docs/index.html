@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Обзор проекта</title>
+  <link rel="stylesheet" href="assets/docs.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+<main class="content">
+
+  <div class="hero">
+    <h1>Solo Leveling — полная документация кода</h1>
+    <p class="lead">Всё об этом репозитории в одном месте: как устроено приложение, что делает каждый файл,
+      каждая функция и каждый эндпоинт, как хранятся данные, как работает авторизация, что проверяют тесты
+      и почему код выглядит именно так.</p>
+
+    <div class="stat-row">
+      <div class="stat"><b>4</b><span>HTML-страницы приложения</span></div>
+      <div class="stat"><b>6</b><span>эндпоинтов REST API</span></div>
+      <div class="stat"><b>53</b><span>задокументированные функции</span></div>
+      <div class="stat"><b>19</b><span>автотестов, все зелёные</span></div>
+      <div class="stat"><b>0</b><span>паролей в открытом виде</span></div>
+    </div>
+  </div>
+
+  <h2>Что это за приложение</h2>
+
+  <p><b>«Поднятие уровня в одиночку»</b> — веб-приложение для геймификации саморазвития в эстетике
+    Solo Leveling: неоновый интерфейс, звёздное небо, «системные» уведомления. Пользователь заводит
+    навыки, выполняет задания, получает за них опыт (XP) и повышает уровни. Отдельная страница —
+    тренажёр памяти в виде дерева уровней, где нужно запоминать числа и слова за ограниченное время.</p>
+
+  <div class="grid">
+    <div class="card">
+      <div class="card__title">★ Навыки</div>
+      <p>Создание, редактирование, удаление, переключение. Уровень и шкала опыта из пяти клеток.
+        При накоплении 5 XP уровень растёт автоматически.</p>
+    </div>
+    <div class="card">
+      <div class="card__title">✔ Задания</div>
+      <p>«Ежедневное» и «задание дня». У каждого — награда в XP и навык, которому эта награда достаётся.</p>
+    </div>
+    <div class="card">
+      <div class="card__title">⏱ Таймер</div>
+      <p>Обратный отсчёт с часами, минутами и секундами, паузой и сбросом. Нужен для рабочих сессий.</p>
+    </div>
+    <div class="card">
+      <div class="card__title">⌘ Тренажёр памяти</div>
+      <p>Бесконечное дерево уровней: числа и слова, скорость показа растёт с уровнем, награда — XP
+        в те же навыки, что и на главной.</p>
+    </div>
+    <div class="card">
+      <div class="card__title">⚿ Аккаунты</div>
+      <p>Регистрация и вход через REST API. Пароли хранятся bcrypt-хешем, сессия — в httpOnly-куке.</p>
+    </div>
+    <div class="card">
+      <div class="card__title">↔ Импорт / экспорт</div>
+      <p>Данные можно скопировать в буфер, скачать файлом <code>levelUpData.json</code> и загрузить обратно.</p>
+    </div>
+  </div>
+
+  <h2>Технологический стек</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Слой</th><th>Технология</th><th>Почему так</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Фронтенд</td>
+          <td>Ванильный HTML + CSS + JS, Tailwind через CDN (только на главной), Font&nbsp;Awesome</td>
+          <td>Нет сборки, нет зависимостей — страницу можно открыть файлом и она заработает</td>
+        </tr>
+        <tr>
+          <td>Бэкенд</td>
+          <td>Node.js ≥ 18, Express 4</td>
+          <td>Минимальный сервер: раздача статики + шесть эндпоинтов</td>
+        </tr>
+        <tr>
+          <td>Безопасность</td>
+          <td>bcryptjs, express-session, helmet, express-rate-limit</td>
+          <td>Хеширование, сессии, HTTP-заголовки и защита от перебора</td>
+        </tr>
+        <tr>
+          <td>Хранилище</td>
+          <td>JSON-файл <code>users.json</code> + <code>localStorage</code> браузера</td>
+          <td>Учебный проект: без БД, но с атомарной записью и валидацией</td>
+        </tr>
+        <tr>
+          <td>Тесты</td>
+          <td>Встроенный <code>node:test</code>, jsdom</td>
+          <td>Без Jest и сборщиков; тесты гоняют и API, и реальные страницы</td>
+        </tr>
+        <tr>
+          <td>CI</td>
+          <td>GitHub Actions, матрица Node 18 / 20 / 22</td>
+          <td>Каждый push и PR прогоняет <code>npm ci &amp;&amp; npm test</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Карта репозитория</h2>
+
+  <div class="filetree">SoloLeveling/
+├── <a href="frontend-index.html">index.html</a>          <span class="c">1050 строк — главная: навыки, задания, таймер, звёздный фон</span>
+├── <a href="frontend-page2.html">page2.html</a>          <span class="c">562 строки — тренажёр памяти (дерево уровней)</span>
+├── <a href="frontend-auth.html">login.html</a>          <span class="c">99 строк — вход и регистрация через API</span>
+├── <a href="frontend-auth.html">userinfo.html</a>       <span class="c">106 строк — профиль пользователя</span>
+├── <a href="server.html">server.js</a>           <span class="c">279 строк — Express: статика + REST API</span>
+├── assets/
+│   ├── <a href="skills-store.html">skills-store.js</a> <span class="c">114 строк — общее хранилище навыков</span>
+│   ├── <a href="frontend-auth.html#общий-css">auth.css</a>        <span class="c">158 строк — общие стили страниц входа и профиля</span>
+│   └── hero.png        <span class="c">картинка на главной</span>
+├── <a href="testing.html">test/</a>
+│   ├── server.test.js  <span class="c">155 строк — 9 тестов API</span>
+│   └── pages.test.js   <span class="c">200 строк — 10 тестов страниц в jsdom</span>
+├── docs/               <span class="c">этот сайт документации</span>
+├── .github/workflows/ci.yml
+├── package.json        <span class="c">зависимости и npm-скрипты</span>
+├── .gitignore          <span class="c">node_modules, users.json, .env</span>
+├── LICENSE             <span class="c">MIT</span>
+└── README.md</div>
+
+  <div class="note">
+    <div class="note__title">Чего в репозитории намеренно нет</div>
+    <p><code>users.json</code> не хранится в Git — это runtime-файл с учётными записями, он создаётся
+      сервером при первой регистрации и попадает в <code>.gitignore</code>. <code>node_modules/</code>
+      тоже игнорируется, зависимости ставятся из <code>package-lock.json</code>.</p>
+  </div>
+
+  <h2>Как читать эту документацию</h2>
+
+  <div class="cards-nav">
+    <a href="setup.html"><b>▶ Установка и запуск</b><span>Клонирование, npm install, переменные окружения, деплой, частые ошибки старта.</span></a>
+    <a href="architecture.html"><b>⬡ Архитектура</b><span>Как связаны страницы, сервер и хранилища. Диаграммы потоков данных и жизненного цикла запроса.</span></a>
+    <a href="data-model.html"><b>▤ Модель данных</b><span>Структуры User, Skill, Task, memoryTrainerData: поля, типы, инварианты, примеры JSON.</span></a>
+    <a href="server.html"><b>⚙ server.js построчно</b><span>Каждая функция, каждый middleware, порядок обработки запроса и обработка ошибок.</span></a>
+    <a href="api.html"><b>⇄ Справочник API</b><span>Шесть эндпоинтов: тела запросов, коды ответов, примеры curl и JSON.</span></a>
+    <a href="security.html"><b>⛨ Безопасность</b><span>Модель угроз, хеширование, сессии, rate limiting, защита от XSS и перебора логинов.</span></a>
+    <a href="frontend-index.html"><b>★ index.html</b><span>Разметка главной и все 33 функции её скрипта — от renderSkill до анимации звёзд.</span></a>
+    <a href="frontend-page2.html"><b>⌘ page2.html</b><span>Тренажёр памяти: формулы уровней, геометрия дерева, drag-навигация, проверка ответа.</span></a>
+    <a href="frontend-auth.html"><b>⚿ Вход и профиль</b><span>login.html, userinfo.html и общий CSS: как страницы общаются с API.</span></a>
+    <a href="skills-store.html"><b>◎ skills-store.js</b><span>Общий модуль хранения навыков: нормализация, начисление XP, повышение уровней.</span></a>
+    <a href="testing.html"><b>✓ Тесты и CI</b><span>Все 19 тестов по одному, как устроен jsdom-стенд, как гонять локально.</span></a>
+    <a href="changelog.html"><b>⟳ Что изменилось</b><span>Полный разбор багов исходной версии: было / стало / почему это важно.</span></a>
+  </div>
+
+  <h2>Три минуты до запуска</h2>
+
+  <pre data-lang="bash" data-file="терминал">git clone https://github.com/DMloaderJava/SoloLeveling.git
+cd SoloLeveling
+npm install
+npm start        # http://localhost:3000
+npm test         # 19 тестов, все должны быть зелёными</pre>
+
+  <div class="note note--ok">
+    <div class="note__title">Совет по навигации</div>
+    <p>Нажмите <kbd>Ctrl</kbd>+<kbd>K</kbd> — откроется поиск по всем страницам документации.
+      Кнопка ◐ в шапке переключает светлую и тёмную тему, а «Открыть приложение ↗» ведёт на само приложение.</p>
+  </div>
+
+</main>
+<script src="assets/docs.js"></script>
+</body>
+</html>

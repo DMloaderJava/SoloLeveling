@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Установка и запуск</title>
+  <link rel="stylesheet" href="assets/docs.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+<main class="content">
+
+  <h1>Установка и запуск</h1>
+  <p class="lead">Как поднять проект локально, что означает каждая команда, какие переменные окружения
+    существуют, как выложить приложение на сервер и что делать, если что-то не запускается.</p>
+
+  <h2>Требования</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Инструмент</th><th>Версия</th><th>Зачем</th></tr></thead>
+      <tbody>
+        <tr><td>Node.js</td><td>≥ 18 (проверено на 18, 20, 22)</td><td>Сервер и тесты. Нужен встроенный <code>fetch</code> и <code>node:test</code></td></tr>
+        <tr><td>npm</td><td>≥ 9</td><td>Установка зависимостей по <code>package-lock.json</code></td></tr>
+        <tr><td>Браузер</td><td>Любой современный</td><td>Нужны <code>fetch</code>, <code>localStorage</code>, <code>crypto.randomUUID</code> (есть фолбэк)</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>Ограничение <code>"engines": { "node": "&gt;=18" }</code> зафиксировано в <code>package.json</code>.</p>
+
+  <h2>Установка</h2>
+
+  <pre data-lang="bash" data-file="терминал">git clone https://github.com/DMloaderJava/SoloLeveling.git
+cd SoloLeveling
+npm install</pre>
+
+  <p><code>npm install</code> поставит пять рантайм-зависимостей и одну для разработки:</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Пакет</th><th>Тип</th><th>Роль в проекте</th></tr></thead>
+      <tbody>
+        <tr><td><code>express</code></td><td>runtime</td><td>HTTP-сервер, роутинг, раздача статики</td></tr>
+        <tr><td><code>bcryptjs</code></td><td>runtime</td><td>Хеширование и проверка паролей</td></tr>
+        <tr><td><code>express-session</code></td><td>runtime</td><td>Сессии в httpOnly-куке <code>sl.sid</code></td></tr>
+        <tr><td><code>helmet</code></td><td>runtime</td><td>Безопасные HTTP-заголовки</td></tr>
+        <tr><td><code>express-rate-limit</code></td><td>runtime</td><td>Ограничение попыток входа и регистрации</td></tr>
+        <tr><td><code>jsdom</code></td><td>dev</td><td>Тесты страниц: реальный DOM в Node</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note note--warn">
+    <div class="note__title">Про <code>npm audit</code></div>
+    <p>Аудит показывает три moderate-уязвимости в транзитивном пакете <code>qs</code>, который тянет
+      Express 4. Прямого исправления в апстриме на момент написания нет; на функциональность и
+      безопасность нашего кода это не влияет — эндпоинты не принимают сложные вложенные query-строки.</p>
+  </div>
+
+  <h2>npm-скрипты</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Команда</th><th>Что делает</th><th>Когда нужна</th></tr></thead>
+      <tbody>
+        <tr><td><code>npm start</code></td><td><code>node server.js</code></td><td>Обычный запуск, порт 3000</td></tr>
+        <tr><td><code>npm run dev</code></td><td><code>node --watch server.js</code></td><td>Разработка: перезапуск при изменении файлов</td></tr>
+        <tr><td><code>npm test</code></td><td><code>node --test test/*.test.js</code></td><td>19 тестов API и страниц</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <pre data-lang="bash" data-file="запуск">npm start
+# → Сервер запущен на http://localhost:3000
+
+npm run dev
+# то же самое, но перезапускается при сохранении файлов
+
+npm test
+# → # tests 19 / # pass 19 / # fail 0</pre>
+
+  <h2>Переменные окружения</h2>
+
+  <p>Все читаются в начале <code>server.js</code>, ни одна не обязательна для локального запуска.</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Переменная</th><th>По умолчанию</th><th>Описание</th></tr></thead>
+      <tbody>
+        <tr><td><code>PORT</code></td><td><code>3000</code></td><td>Порт HTTP-сервера. Раньше был захардкожен — теперь настраивается</td></tr>
+        <tr><td><code>HOST</code></td><td><code>0.0.0.0</code></td><td>Интерфейс прослушивания. <code>0.0.0.0</code> нужен внутри контейнеров и превью-сред</td></tr>
+        <tr><td><code>USERS_FILE</code></td><td><code>./users.json</code></td><td>Путь к файлу с учётками. Тесты подставляют временный файл</td></tr>
+        <tr><td><code>SESSION_SECRET</code></td><td>случайные 32 байта</td><td>Секрет подписи куки. <b>Задайте в продакшене</b>, иначе после рестарта все сессии становятся недействительными</td></tr>
+        <tr><td><code>BCRYPT_ROUNDS</code></td><td><code>10</code></td><td>Стоимость хеша. В тестах снижается до 4 ради скорости</td></tr>
+        <tr><td><code>NODE_ENV</code></td><td>—</td><td>При значении <code>production</code> кука помечается флагом <code>Secure</code> (только HTTPS)</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <pre data-lang="bash" data-file="пример продакшен-запуска">export NODE_ENV=production
+export SESSION_SECRET="$(openssl rand -hex 32)"
+export PORT=8080
+export USERS_FILE=/var/lib/sololeveling/users.json
+npm start</pre>
+
+  <div class="note note--danger">
+    <div class="note__title">Обязательно в продакшене</div>
+    <p>1) Задайте <code>SESSION_SECRET</code> — иначе при каждом перезапуске генерируется новый секрет
+      и пользователей «выкидывает». 2) Поставьте <code>NODE_ENV=production</code> и терминируйте HTTPS
+      на реверс-прокси: без этого кука сессии уйдёт по открытому HTTP.</p>
+  </div>
+
+  <h2>Проверка, что всё работает</h2>
+
+  <pre data-lang="bash" data-file="smoke-тест">curl -s -o /dev/null -w "%{http_code}\n" localhost:3000/            # 200 — главная
+curl -s -X POST localhost:3000/api/register \
+  -H 'Content-Type: application/json' \
+  -c cookies.txt \
+  -d '{"username":"hunter","password":"secret123"}'                 # 201 + JSON пользователя
+
+curl -s -b cookies.txt localhost:3000/api/me                        # данные текущего пользователя
+cat users.json                                                      # внутри passwordHash, а не пароль</pre>
+
+  <p>Ожидаемый ответ регистрации — обратите внимание, что пароля в нём нет:</p>
+
+  <pre data-lang="json" data-file="ответ /api/register">{
+  "success": true,
+  "message": "Регистрация успешна",
+  "user": {
+    "username": "hunter",
+    "profile": { "level": 1, "xp": 0, "skills": [] },
+    "createdAt": "2026-09-04T17:37:17.017Z"
+  }
+}</pre>
+
+  <h2>Открыть документацию</h2>
+
+  <p>Этот сайт лежит в папке <code>docs/</code> и раздаётся тем же сервером:</p>
+
+  <pre data-lang="bash" data-file="документация">npm start
+# затем откройте http://localhost:3000/docs/</pre>
+
+  <p>Документация — статические файлы без сборки, поэтому её можно опубликовать на GitHub Pages:
+    Settings → Pages → Source: <code>main</code>, папка <code>/docs</code>.</p>
+
+  <h2>Деплой приложения</h2>
+
+  <h3>Вариант 1. Node-хостинг (полная функциональность)</h3>
+
+  <p>Render, Railway, Fly.io, VPS с systemd — подойдёт любой, где можно выполнить
+    <code>npm ci &amp;&amp; npm start</code>. Файл <code>users.json</code> должен лежать на постоянном диске,
+    иначе учётки исчезнут при передеплое — для этого и нужна переменная <code>USERS_FILE</code>.</p>
+
+  <pre data-lang="bash" data-file="systemd-юнит (фрагмент)">[Service]
+WorkingDirectory=/opt/sololeveling
+Environment=NODE_ENV=production
+Environment=SESSION_SECRET=подставьте_свой_секрет
+Environment=USERS_FILE=/var/lib/sololeveling/users.json
+ExecStart=/usr/bin/node server.js
+Restart=always</pre>
+
+  <h3>Вариант 2. Только статика (GitHub Pages)</h3>
+
+  <p>Страницы <code>index.html</code>, <code>page2.html</code> и вся игровая логика работают без сервера:
+    навыки, задания, таймер и тренажёр держатся в <code>localStorage</code>. Не будет только аккаунтов —
+    <code>login.html</code> и <code>userinfo.html</code> покажут сообщение «Сервер недоступен».
+    Это ожидаемое поведение, а не ошибка: запросы к <code>/api/*</code> просто некуда отправлять.</p>
+
+  <h2>Частые проблемы</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Симптом</th><th>Причина</th><th>Решение</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>Cannot find module 'express'</code></td>
+          <td>Не выполнен <code>npm install</code></td>
+          <td><code>npm install</code> в корне репозитория</td>
+        </tr>
+        <tr>
+          <td><code>EADDRINUSE: address already in use :::3000</code></td>
+          <td>Порт занят другим процессом</td>
+          <td><code>PORT=3001 npm start</code> либо остановить занявший процесс</td>
+        </tr>
+        <tr>
+          <td>Вход проходит, но <code>/api/me</code> отдаёт 401</td>
+          <td>Кука не сохраняется: запрос ушёл с другого origin или без <code>credentials</code></td>
+          <td>Открывайте приложение с того же адреса, что и API; в fetch указан <code>credentials: 'same-origin'</code></td>
+        </tr>
+        <tr>
+          <td>После рестарта всех «разлогинило»</td>
+          <td>Не задан <code>SESSION_SECRET</code> — сгенерировался новый</td>
+          <td>Зафиксировать секрет в переменных окружения</td>
+        </tr>
+        <tr>
+          <td><code>Слишком много попыток. Повторите позже.</code></td>
+          <td>Сработал rate limit: 20 запросов за 15 минут с одного IP</td>
+          <td>Подождать окно либо поднять лимит в <code>server.js</code> для стенда</td>
+        </tr>
+        <tr>
+          <td>Навыки пропали</td>
+          <td>Очищен <code>localStorage</code> браузера — данные игры хранятся там</td>
+          <td>Восстановить из ранее скачанного <code>levelUpData.json</code> (кнопка «Загрузить данные»)</td>
+        </tr>
+        <tr>
+          <td>Тесты падают с ошибкой jsdom</td>
+          <td>Не установлены dev-зависимости (<code>npm ci --omit=dev</code>)</td>
+          <td><code>npm install</code> без флагов</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+</main>
+<script src="assets/docs.js"></script>
+</body>
+</html>

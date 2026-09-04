@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>page2.html — тренажёр памяти</title>
+  <link rel="stylesheet" href="assets/docs.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+<main class="content">
+
+  <h1>page2.html — тренажёр памяти</h1>
+  <p class="lead">562 строки: бесконечное дерево уровней, которое можно таскать мышью и пальцем, генерация
+    чисел и слов, отсчёт времени с шагом 0,1 секунды и начисление опыта в общие навыки.</p>
+
+  <h2>Как выглядит и работает</h2>
+
+  <div class="diagram">┌──────────────────────────────────────── экран ─────────────────────────────┐
+│ 🏠                                              ┌──────────────────────┐  │
+│ (на главную)                                    │ Опыт: 35             │  │
+│                                                 │ ████████░░░░░░░░░░░  │  │
+│                                                 └──────────────────────┘  │
+│                                                                            │
+│                        ┌────────────┐                                      │
+│                        │ Уровень 1  │  ← пройден (зелёный, пульсирует)     │
+│                        │ Speed x1.0 │                                      │
+│                        └─────┬──────┘                                      │
+│                              │  линия связи (поворот через atan2)           │
+│              ┌────────────┐  │                                             │
+│              │ Уровень 2  │──┘   ← открыт (красная рамка)                  │
+│              │ Speed x1.2 │                                                │
+│              └─────┬──────┘                                                │
+│                    │                    ┌────────────┐                     │
+│                    └────────────────────│ Уровень 3  │ ← закрыт (тусклый)  │
+│                                         │ Speed x1.4 │                     │
+│                                         └────────────┘                     │
+│  полотно 20000px в высоту, перетаскивается мышью и пальцем                  │
+└────────────────────────────────────────────────────────────────────────────┘</div>
+
+  <p>Узлы расставлены зигзагом: первый по центру, чётные — на 25% ширины, нечётные — на 75%,
+    шаг по вертикали 200 пикселей. Соседние соединяются линиями, которые пересчитываются при каждом
+    изменении дерева.</p>
+
+  <h2>Состояние страницы</h2>
+
+  <pre data-lang="js" data-file="page2.html, переменные модуля">let currentNumber = null;      // то, что нужно запомнить (число или слово)
+let timerInterval = null;      // интервал обратного отсчёта
+let activeNode = null;         // узел, который сейчас проходят
+let xp = 0;                    // опыт тренажёра
+let currentLevel = 1;          // самый высокий открытый уровень
+let timeLeft = 0;              // остаток времени показа, в секундах
+// Пройденные уровни сохраняются, иначе после перезагрузки
+// дерево навыков сбрасывалось в исходное состояние.
+let completedLevels = new Set();
+
+const words = ['ПАМЯТЬ', 'КОД', 'ТРЕНИРОВКА', 'МОЗГ', 'ЛОГИКА', 'ВЕТКА', 'ПРОГРЕСС', 'СЛОВО', 'БУКВА', 'ТЕСТ'];
+const consonants = 'БВГДЖЗКЛМНПРСТФХЦЧШЩ';
+let isDragging = false, dragStartX = 0, dragStartY = 0;
+let treePosition = { x: 0, y: 0 };</pre>
+
+  <p><code>Set</code> для пройденных уровней выбран не случайно: проверка <code>completedLevels.has(level)</code>
+    выполняется за константное время, а повторное добавление одного уровня ничего не ломает.
+    В <code>localStorage</code> он сохраняется как обычный массив через <code>Array.from()</code>.</p>
+
+  <h2>Генерация заданий</h2>
+
+  <div class="sig"><b>generateWord</b>(length: number): string</div>
+  <pre data-lang="js">function generateWord(length) {
+  return Array.from({ length }, () =&gt;
+    consonants[Math.floor(Math.random() * consonants.length)]
+  ).join('');
+}</pre>
+  <p>Собирает случайное «слово» только из согласных — такую последовательность нельзя проговорить,
+    поэтому её приходится запоминать визуально, а не фонетически. На уровнях, кратных четырём, вместо
+    случайного набора берётся осмысленное слово из массива <code>words</code> — небольшая передышка.</p>
+
+  <h2>Дерево уровней</h2>
+
+  <div class="sig"><b>createLevelNode</b>(level: number): HTMLElement</div>
+
+  <p>Создаёт узел и вычисляет все его параметры из номера уровня:</p>
+
+  <pre data-lang="js" data-file="формулы">const speed = 1 + 0.2 * (level - 1);          // скорость показа
+const xpReward = 10 + 5 * (level - 1);        // награда
+const digits = 4 + Math.floor((level - 1) / 3); // длина числа/слова
+const isWordLevel = level % 2 === 0;          // чётные уровни — слова</pre>
+
+  <p>Параметры кладутся в <code>data-</code>атрибуты (<code>data-level</code>, <code>data-speed</code>,
+    <code>data-xp</code>, <code>data-digits</code>, <code>data-type</code>, <code>data-hint</code>) —
+    DOM выступает хранилищем состояния узла, отдельной структуры в JS нет.</p>
+
+  <pre data-lang="js" data-file="состояние узла — после исправления">if (completedLevels.has(level)) {
+  node.classList.add('completed');
+} else if (level &lt;= currentLevel) {
+  node.classList.add('unlocked');
+} else {
+  node.classList.add('locked');
+}</pre>
+
+  <div class="note note--warn">
+    <div class="note__title">Что чинило это изменение</div>
+    <p>Раньше условие было <code>level &lt; currentLevel</code> → «пройден». Но <code>currentLevel</code>
+      увеличивался только когда следующего узла ещё не существовало, поэтому при обычном прохождении
+      прогресс терялся: после перезагрузки пройденные уровни снова становились доступными или закрытыми.
+      Теперь есть явный список <code>completedLevels</code>, а тест
+      <span class="badge badge--muted">pages #8</span> проверяет восстановление после перезагрузки.</p>
+  </div>
+
+  <div class="sig"><b>createConnectionLine</b>(node1: Element, node2: Element): void</div>
+  <pre data-lang="js" data-file="геометрия линии">const deltaX = x2 - x1;
+const deltaY = y2 - y1;
+const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+const angle = Math.atan2(deltaY, deltaX) * (180 / Math.PI);
+
+line.style.width = distance + "px";
+line.style.top = y1 + "px";
+line.style.left = x1 + "px";
+line.style.transform = `rotate(${angle}deg)`;</pre>
+  <p>Линия — это <code>div</code> высотой 2 пикселя, повёрнутый вокруг левого края
+    (<code>transform-origin: 0 50%</code>). Длина — расстояние между центрами узлов, угол — арктангенс
+    разности координат. Координаты берутся из <code>getBoundingClientRect()</code> с поправкой на
+    положение контейнера.</p>
+
+  <div class="sig"><b>updateAllConnections</b>(): void</div>
+  <p>Удаляет все линии и рисует заново для каждой пары «уровень − 1 → уровень». Вызывается после
+    прохождения уровня и при первоначальной сборке дерева.</p>
+
+  <h2>Сохранение прогресса</h2>
+
+  <div class="sig"><b>saveProgress</b>(): void  /  <b>loadProgress</b>(): void</div>
+
+  <pre data-lang="js" data-file="сохранение">function saveProgress() {
+  const data = {
+    xp: xp,
+    currentLevel: currentLevel,
+    completedLevels: Array.from(completedLevels)
+  };
+  localStorage.setItem('memoryTrainerData', JSON.stringify(data));
+}</pre>
+
+  <pre data-lang="js" data-file="загрузка">try {
+  const parsed = JSON.parse(data);
+  xp = Number(parsed.xp) || 0;
+  currentLevel = Number(parsed.currentLevel) || 1;
+  completedLevels = new Set(Array.isArray(parsed.completedLevels) ? parsed.completedLevels : []);
+  renderXp();
+} catch (e) {
+  console.error('Ошибка загрузки данных:', e);
+  xp = 0;
+  currentLevel = 1;
+  completedLevels = new Set();
+}</pre>
+
+  <p>Загрузка устойчива к битому JSON и к старому формату без поля <code>completedLevels</code>:
+    в этом случае список просто окажется пустым, а игра продолжится.</p>
+
+  <h2>Прохождение уровня</h2>
+
+  <div class="sig"><b>startTraining</b>(node: Element): void</div>
+  <ol>
+    <li>закрытые и уже пройденные узлы игнорируются;</li>
+    <li>по <code>data-type</code> генерируется число или слово нужной длины;</li>
+    <li>время показа <code>4 / speed</code> кладётся в <code>timeLeft</code>;</li>
+    <li>заполняются подсказка, само задание и табло времени, заголовок второго шага меняется на
+      «Введите слово:» или «Введите число:»;</li>
+    <li>показывается модальное окно, запускается интервал с шагом 100 мс;</li>
+    <li>когда время вышло — <code>nextStage()</code>.</li>
+  </ol>
+
+  <div class="sig"><b>addExtraTime</b>(): void</div>
+  <p>Кнопка «+3 сек» — добавляет три секунды к текущему показу. Полезно на высоких уровнях,
+    где число мелькает меньше полутора секунд.</p>
+
+  <div class="sig"><b>nextStage</b>(): void  /  <b>closeModal</b>(): void</div>
+  <p>Переключение с экрана показа на экран ввода и закрытие окна. Обе функции первым делом гасят
+    интервал — иначе он продолжал бы работать в фоне.</p>
+
+  <div class="sig"><b>checkAnswer</b>(): void</div>
+
+  <pre data-lang="js" data-file="сравнение ответа — после исправления">const rawAnswer = document.getElementById('numberInput').value.trim();
+const isWordLevel = activeNode.getAttribute('data-type') === 'word';
+const correctAnswer = String(currentNumber);
+
+// Слова сравниваем без учёта регистра, числа — как есть.
+const userAnswer = isWordLevel ? rawAnswer.toUpperCase() : rawAnswer;
+const expected = isWordLevel ? correctAnswer.toUpperCase() : correctAnswer;
+
+if (userAnswer === expected) { /* … */ }</pre>
+
+  <p>Раньше ответ безусловно приводился к верхнему регистру, а переменная <code>isWordLevel</code>
+    вычислялась и не использовалась. Для чисел это было бессмысленно, а логика «слово или число»
+    фактически отсутствовала. Тест <span class="badge badge--muted">pages #7</span> вводит слово строчными
+    буквами и убеждается, что ответ засчитан.</p>
+
+  <p>При верном ответе:</p>
+  <pre data-lang="js" data-file="успех">activeNode.classList.remove('unlocked');
+activeNode.classList.add('completed');
+
+const completedLevel = parseInt(activeNode.getAttribute('data-level'));
+completedLevels.add(completedLevel);
+updateXP(parseInt(activeNode.getAttribute('data-xp')));
+
+const nextLevel = completedLevel + 1;
+currentLevel = Math.max(currentLevel, nextLevel);
+const nextNode = document.querySelector(`.skill-node[data-level="${nextLevel}"]`);
+if (nextNode) {
+  nextNode.classList.remove('locked');
+  nextNode.classList.add('unlocked');
+} else {
+  createLevelNode(nextLevel);
+}
+saveProgress();
+updateAllConnections();
+setTimeout(closeModal, 1000);</pre>
+
+  <p>Дерево бесконечно: как только пройден последний видимый уровень, тут же создаётся следующий.
+    <code>Math.max</code> нужен, чтобы прохождение старого уровня не понижало достигнутый прогресс.</p>
+
+  <h2>Опыт</h2>
+
+  <div class="sig"><b>renderXp</b>(): void  /  <b>updateXP</b>(amount: number): void</div>
+
+  <pre data-lang="js" data-file="начисление опыта">function renderXp() {
+  document.getElementById('xpCounter').textContent = xp;
+  document.getElementById('xpProgress').style.width = `${xp % 100}%`;
+}
+
+function updateXP(amount) {
+  const gained = Number(amount) || 0;
+  xp += gained;
+  renderXp();
+  saveProgress();
+
+  // Опыт из тренажёра теперь попадает и в навыки на главной странице.
+  const result = window.SkillsStore &amp;&amp; SkillsStore.awardXp(gained);
+  if (result &amp;&amp; result.levelsGained &gt; 0) {
+    const feedback = document.getElementById('feedback');
+    feedback.textContent = `Правильно! Навык «${result.skill.name}» — уровень ${result.skill.level}!`;
+  }
+}</pre>
+
+  <div class="note note--ok">
+    <div class="note__title">Два исправления в одной функции</div>
+    <p>Во-первых, добавлен <code>saveProgress()</code>: раньше опыт сохранялся только внутри
+      <code>checkAnswer</code> и часть прогресса могла потеряться. Во-вторых, появился вызов
+      <code>SkillsStore.awardXp()</code> — до этого тренажёр и главная страница вели независимый учёт,
+      и заработанный опыт нигде, кроме этой страницы, не отражался. Проверяется тестом
+      <span class="badge badge--muted">pages #6</span>.</p>
+    <p>Проверка <code>window.SkillsStore &amp;&amp; …</code> оставляет страницу работоспособной, даже если
+      общий модуль не загрузился.</p>
+  </div>
+
+  <h2>Перетаскивание дерева</h2>
+
+  <p>Полотно высотой 20000 пикселей нельзя прокрутить обычным скроллом — страница использует
+    <code>overflow: hidden</code>. Вместо этого дерево двигают мышью или пальцем:</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Событие</th><th>Действие</th></tr></thead>
+      <tbody>
+        <tr><td><code>mousedown</code> / <code>touchstart</code></td><td>Включает режим перетаскивания, запоминает стартовые координаты, отключает CSS-переход</td></tr>
+        <tr><td><code>mousemove</code> / <code>touchmove</code></td><td>Считает смещение и применяет <code>transform: translate(x, y)</code>; <code>preventDefault()</code> гасит прокрутку страницы на мобильном</td></tr>
+        <tr><td><code>mouseup</code> / <code>touchend</code></td><td>Выключает режим, возвращает плавный переход</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>Свойство <code>touch-action: none</code> у контейнера и <code>user-select: none</code> у узлов
+    предотвращают конфликт с жестами браузера и случайное выделение текста при перетаскивании.</p>
+
+  <h2>Инициализация</h2>
+
+  <pre data-lang="js" data-file="DOMContentLoaded">document.addEventListener("DOMContentLoaded", () =&gt; {
+  loadProgress();
+  const maxLevel = Math.max(currentLevel, ...completedLevels, 1);
+  for (let level = 1; level &lt;= maxLevel; level++) {
+    createLevelNode(level);
+  }
+  updateAllConnections();
+});</pre>
+
+  <p>Дерево отстраивается до максимального из достигнутых уровней. Раньше цикл шёл
+    <code>level &lt; currentLevel</code> с отдельным созданием текущего узла, из-за чего при
+    рассинхронизации <code>currentLevel</code> и реального прогресса часть узлов не появлялась.</p>
+
+  <h2>Стили страницы</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Класс</th><th>Назначение</th></tr></thead>
+      <tbody>
+        <tr><td><code>.skill-node</code></td><td>Квадрат 120×120 с градиентом, красной тенью и подписью уровня</td></tr>
+        <tr><td><code>.skill-node.unlocked</code></td><td>Полная непрозрачность, красная рамка — уровень доступен</td></tr>
+        <tr><td><code>.skill-node.completed</code></td><td>Зелёный фон и бесконечная анимация свечения</td></tr>
+        <tr><td><code>.skill-node.locked</code></td><td>Прозрачность 0.3 и курсор <code>not-allowed</code></td></tr>
+        <tr><td><code>.connection-line</code></td><td>Градиентная линия между узлами</td></tr>
+        <tr><td><code>.modal</code> / <code>.modal-content</code></td><td>Затемнение и центрированное окно тренировки</td></tr>
+        <tr><td><code>.xp-bar</code> / <code>.xp-progress</code></td><td>Полоса опыта в правом верхнем углу</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+</main>
+<script src="assets/docs.js"></script>
+</body>
+</html>

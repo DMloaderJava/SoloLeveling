@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>skills-store.js</title>
+  <link rel="stylesheet" href="assets/docs.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+<main class="content">
+
+  <h1>assets/skills-store.js</h1>
+  <p class="lead">114 строк, единственный модуль, который знает формат данных навыков. Через него работают
+    и главная страница, и тренажёр памяти — именно поэтому опыт, заработанный в тренажёре, попадает
+    в те же навыки.</p>
+
+  <h2>Зачем модуль появился</h2>
+
+  <div class="diagram">БЫЛО                                    СТАЛО
+
+index.html                              index.html ──┐
+  └── localStorage['levelUpData']                    ├──▶ SkillsStore ──▶ localStorage['levelUpData']
+                                        page2.html ──┘
+page2.html
+  └── localStorage['memoryTrainerData']  page2.html также ведёт своё
+                                         localStorage['memoryTrainerData']
+две независимые системы:                  (прогресс дерева)
+опыт из тренажёра нигде не учитывался    один формат, одни правила уровней</div>
+
+  <p>Кроме объединения данных модуль решает вторую задачу: правила «сколько опыта нужно на уровень»
+    больше не размазаны по страницам. Есть одна константа <code>EXP_PER_LEVEL</code> и одна функция
+    <code>applyLevelUps</code>.</p>
+
+  <h2>Обёртка модуля</h2>
+
+  <pre data-lang="js" data-file="IIFE">(function (global) {
+  'use strict';
+
+  const STORAGE_KEY = 'levelUpData';
+  const EXP_PER_LEVEL = 5;
+
+  // … функции …
+
+  global.SkillsStore = {
+    STORAGE_KEY, EXP_PER_LEVEL, generateId, createDefaultSkill,
+    normalize, load, save, applyLevelUps, awardXp,
+  };
+})(window);</pre>
+
+  <p>Классическая IIFE: внутренние детали не попадают в глобальную область, наружу выставляется один
+    объект <code>window.SkillsStore</code>. Так модуль работает без сборщика и без
+    <code>type="module"</code> — обычным тегом <code>&lt;script&gt;</code> в любом браузере.</p>
+
+  <h2>Публичный интерфейс</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Член</th><th>Тип</th><th>Назначение</th></tr></thead>
+      <tbody>
+        <tr><td><code>STORAGE_KEY</code></td><td>string</td><td><code>'levelUpData'</code> — ключ в localStorage</td></tr>
+        <tr><td><code>EXP_PER_LEVEL</code></td><td>number</td><td><code>5</code> — опыта на один уровень</td></tr>
+        <tr><td><code>generateId()</code></td><td>fn</td><td>Уникальный идентификатор</td></tr>
+        <tr><td><code>createDefaultSkill()</code></td><td>fn</td><td>Стартовый навык</td></tr>
+        <tr><td><code>normalize(data)</code></td><td>fn</td><td>Приведение к валидной структуре</td></tr>
+        <tr><td><code>load()</code></td><td>fn</td><td>Чтение и нормализация из localStorage</td></tr>
+        <tr><td><code>save(data)</code></td><td>fn</td><td>Запись в localStorage</td></tr>
+        <tr><td><code>applyLevelUps(skill)</code></td><td>fn</td><td>Повышение уровней; возвращает их количество</td></tr>
+        <tr><td><code>awardXp(amount, skillId?)</code></td><td>fn</td><td>Начисление опыта с сохранением</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>generateId()</h2>
+
+  <div class="sig"><b>generateId</b>(): string</div>
+
+  <pre data-lang="js">function generateId() {
+  return global.crypto &amp;&amp; typeof global.crypto.randomUUID === 'function'
+    ? global.crypto.randomUUID()
+    : '_' + Math.random().toString(36).slice(2, 11);
+}</pre>
+
+  <p>Основной путь — криптостойкий UUID. Фолбэк нужен для старых браузеров и для страниц, открытых
+    по <code>http://</code> с внешнего адреса: <code>crypto.randomUUID</code> доступен только в
+    защищённом контексте. Использован <code>slice</code>, а не устаревший <code>substr</code>.</p>
+
+  <h2>createDefaultSkill()</h2>
+
+  <div class="sig"><b>createDefaultSkill</b>(): Skill</div>
+
+  <pre data-lang="js">function createDefaultSkill() {
+  return {
+    id: generateId(),
+    name: 'Default Skill',
+    level: 1,
+    exp: 0,
+    desc: 'Это дефолтный навык. Нажмите для прокачки.',
+    default: true,
+  };
+}</pre>
+
+  <p>Ровно один навык в наборе имеет <code>default: true</code>. Он существует, чтобы приложению всегда
+    было куда начислять опыт: удалить его нельзя, а отредактировать — можно, но тогда флаг снимается
+    и <code>normalize()</code> создаст новый дефолтный.</p>
+
+  <h2>normalize()</h2>
+
+  <div class="sig"><b>normalize</b>(data: unknown): { skills: Skill[], tasks: Task[] }</div>
+
+  <pre data-lang="js">function normalize(data) {
+  const safe = data &amp;&amp; typeof data === 'object' ? data : {};
+  const skills = Array.isArray(safe.skills) ? safe.skills : [];
+  const tasks = Array.isArray(safe.tasks) ? safe.tasks : [];
+
+  if (!skills.some((skill) =&gt; skill &amp;&amp; skill.default)) {
+    skills.push(createDefaultSkill());
+  }
+
+  skills.forEach((skill) =&gt; {
+    skill.id = skill.id || generateId();
+    skill.level = Number.isFinite(skill.level) &amp;&amp; skill.level &gt;= 1 ? skill.level : 1;
+    skill.exp = Number.isFinite(skill.exp) &amp;&amp; skill.exp &gt;= 0 ? skill.exp : 0;
+  });
+
+  return { skills, tasks };
+}</pre>
+
+  <p>Функция-«санитайзер». Она вызывается в трёх местах: при загрузке из localStorage, при импорте
+    JSON-файла пользователем и косвенно при любом старте страницы. Что она гарантирует:</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Вход</th><th>Результат</th></tr></thead>
+      <tbody>
+        <tr><td><code>null</code>, строка, число</td><td><code>{ skills: [дефолтный], tasks: [] }</code></td></tr>
+        <tr><td><code>{ skills: "не массив" }</code></td><td>Поле заменяется пустым массивом</td></tr>
+        <tr><td>Навыки без дефолтного</td><td>Дефолтный добавляется</td></tr>
+        <tr><td><code>level: "пять"</code>, <code>exp: NaN</code></td><td>Заменяются на <code>1</code> и <code>0</code></td></tr>
+        <tr><td>Навык без <code>id</code></td><td>Генерируется новый</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>load() и save()</h2>
+
+  <div class="sig"><b>load</b>(): { skills: Skill[], tasks: Task[] }</div>
+
+  <pre data-lang="js">function load() {
+  try {
+    return normalize(JSON.parse(global.localStorage.getItem(STORAGE_KEY)));
+  } catch (error) {
+    console.error('Не удалось прочитать сохранённые данные:', error);
+    return normalize(null);
+  }
+}</pre>
+
+  <p><code>JSON.parse(null)</code> возвращает <code>null</code> и не бросает исключение, поэтому первый
+    запуск проходит через тот же путь, что и обычная загрузка. <code>try/catch</code> ловит битую строку
+    в хранилище — в этом случае игрок получает чистый набор данных вместо белого экрана.</p>
+
+  <div class="sig"><b>save</b>(data): void</div>
+
+  <pre data-lang="js">function save(data) {
+  try {
+    global.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  } catch (error) {
+    console.error('Не удалось сохранить данные:', error);
+  }
+}</pre>
+
+  <p>Запись тоже в <code>try/catch</code>: <code>localStorage</code> выбрасывает
+    <code>QuotaExceededError</code> при переполнении и вовсе недоступен в приватном режиме некоторых
+    браузеров. Приложение продолжит работать в памяти, просто без сохранения.</p>
+
+  <h2>applyLevelUps()</h2>
+
+  <div class="sig"><b>applyLevelUps</b>(skill: Skill): number   <span style="color:var(--text-dim)">// сколько уровней получено</span></div>
+
+  <pre data-lang="js">/**
+ * Повышает уровень столько раз, сколько позволяет накопленный опыт.
+ * Прежняя реализация использовала `if`, поэтому награда в 20 XP
+ * давала только один уровень, а остаток опыта терялся.
+ */
+function applyLevelUps(skill) {
+  let gained = 0;
+  while (skill.exp &gt;= EXP_PER_LEVEL) {
+    skill.exp -= EXP_PER_LEVEL;
+    skill.level += 1;
+    gained += 1;
+  }
+  return gained;
+}</pre>
+
+  <p>Сердце игровой механики. Функция изменяет переданный объект и возвращает число полученных уровней —
+    вызывающий код сам решает, показывать ли уведомление. Цикл всегда завершается: опыт конечен и
+    уменьшается на 5 за итерацию.</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>До</th><th>После</th><th>Возврат</th></tr></thead>
+      <tbody>
+        <tr><td>L1, exp 3</td><td>L1, exp 3</td><td>0</td></tr>
+        <tr><td>L1, exp 5</td><td>L2, exp 0</td><td>1</td></tr>
+        <tr><td>L1, exp 7</td><td>L2, exp 2</td><td>1</td></tr>
+        <tr><td>L1, exp 22</td><td>L5, exp 2</td><td>4</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>awardXp()</h2>
+
+  <div class="sig"><b>awardXp</b>(amount: number, skillId?: string): { skill: Skill, levelsGained: number } | null</div>
+
+  <pre data-lang="js">function awardXp(amount, skillId) {
+  const xp = Number(amount);
+  if (!Number.isFinite(xp) || xp &lt;= 0) return null;
+
+  const data = load();
+  const skill = data.skills.find((item) =&gt; item.id === skillId) || data.skills[0];
+  if (!skill) return null;
+
+  skill.exp += xp;
+  const levelsGained = applyLevelUps(skill);
+  save(data);
+
+  return { skill, levelsGained };
+}</pre>
+
+  <p>Единственная функция модуля, которая делает полный цикл «загрузить → изменить → сохранить».
+    Именно её вызывает тренажёр памяти:</p>
+
+  <pre data-lang="js" data-file="page2.html">const result = window.SkillsStore &amp;&amp; SkillsStore.awardXp(gained);
+if (result &amp;&amp; result.levelsGained &gt; 0) {
+  feedback.textContent = `Правильно! Навык «${result.skill.name}» — уровень ${result.skill.level}!`;
+}</pre>
+
+  <ul>
+    <li>Некорректная или нулевая награда молча игнорируется — возвращается <code>null</code>.</li>
+    <li>Если навык с указанным <code>id</code> не найден, опыт получает первый в списке (то есть
+      обычно дефолтный), награда не пропадает.</li>
+    <li>Данные каждый раз перечитываются из хранилища: две открытые вкладки не затрут правки друг друга
+      целиком, хотя полноценной синхронизации между вкладками нет.</li>
+  </ul>
+
+  <h2>Кто и как использует модуль</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Файл</th><th>Что вызывает</th><th>Зачем</th></tr></thead>
+      <tbody>
+        <tr><td><code>index.html</code></td><td><code>load</code>, <code>save</code>, <code>normalize</code>, <code>createDefaultSkill</code>, <code>generateId</code>, <code>applyLevelUps</code>, <code>EXP_PER_LEVEL</code></td><td>Все операции с навыками и заданиями</td></tr>
+        <tr><td><code>page2.html</code></td><td><code>awardXp</code></td><td>Начисление опыта за пройденный уровень</td></tr>
+        <tr><td><code>test/pages.test.js</code></td><td>Косвенно — через содержимое localStorage</td><td>Проверка, что XP из тренажёра доходит до навыков</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note">
+    <div class="note__title">Как расширять</div>
+    <p>Меняете правила прокачки (например, растущую стоимость уровня) — правьте только
+      <code>applyLevelUps</code> и <code>EXP_PER_LEVEL</code>. Страницы менять не придётся: они не
+      знают о формуле ничего. Добавляете поле в навык — добавьте его в <code>createDefaultSkill</code>
+      и в цикл нормализации, тогда старые сохранения автоматически получат значение по умолчанию.</p>
+  </div>
+
+</main>
+<script src="assets/docs.js"></script>
+</body>
+</html>
