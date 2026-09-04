@@ -4,79 +4,103 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Информация о пользователе</title>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      background: linear-gradient(270deg, #0a0a0a, #101010, #0a0a0a);
-      color: #e0e0e0;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      min-height: 100vh;
-      margin: 0;
-      padding: 20px;
-    }
-    .userinfo-container {
-      background: rgba(0, 0, 0, 0.7);
-      padding: 30px;
-      border-radius: 10px;
-      box-shadow: 0 0 20px rgba(0,204,255,0.3);
-      width: 100%;
-      max-width: 600px;
-    }
-    .userinfo-header {
-      text-align: center;
-      color: #00ccff;
-    }
-    .userinfo-section {
-      margin-top: 20px;
-    }
-    .userinfo-section h3 {
-      margin-bottom: 10px;
-      color: #00ccff;
-    }
-    .userinfo-data {
-      background: rgba(255, 255, 255, 0.1);
-      padding: 15px;
-      border-radius: 5px;
-    }
-    .back-link {
-      margin-top: 20px;
-      text-align: center;
-    }
-    .back-link a {
-      color: #00ccff;
-      text-decoration: none;
-    }
-  </style>
+  <link rel="stylesheet" href="assets/auth.css">
 </head>
 <body>
-  <div class="userinfo-container">
-    <h2 class="userinfo-header">Информация о пользователе</h2>
-    <div class="userinfo-section" id="userInfo">
-      <!-- Данные пользователя появятся здесь -->
+  <div class="card card--wide">
+    <h2>Информация о пользователе</h2>
+
+    <div class="section" id="userInfo">
+      <p class="hint">Загружаем данные…</p>
     </div>
-    <div class="back-link">
-      <a href="index.html">Выйти</a>
+
+    <div class="links">
+      <a href="index.html">На главную</a>
+      <span id="logoutWrapper" hidden> · <a href="#" id="logoutLink">Выйти</a></span>
     </div>
   </div>
 
   <script>
-    const userData = JSON.parse(localStorage.getItem('userData'));
     const userInfoDiv = document.getElementById('userInfo');
+    const logoutWrapper = document.getElementById('logoutWrapper');
 
-    if (userData) {
-      userInfoDiv.innerHTML = `
-        <div class="userinfo-data">
-          <p><strong>Логин:</strong> ${userData.username}</p>
-          <p><strong>Уровень:</strong> ${userData.profile.level}</p>
-          <p><strong>Опыт (XP):</strong> ${userData.profile.xp}</p>
-          <p><strong>Навыки:</strong> ${userData.profile.skills.length ? userData.profile.skills.join(', ') : 'Нет навыков'}</p>
-        </div>
-      `;
-    } else {
-      userInfoDiv.innerHTML = `<p>Данные пользователя не найдены. Пожалуйста, зарегистрируйтесь.</p>`;
+    /** Безопасный вывод: значения вставляются через textContent, а не innerHTML. */
+    function renderRow(label, value) {
+      const row = document.createElement('p');
+      const strong = document.createElement('strong');
+      strong.textContent = `${label}: `;
+      row.appendChild(strong);
+      row.appendChild(document.createTextNode(String(value)));
+      return row;
     }
+
+    function renderUser(user) {
+      const block = document.createElement('div');
+      block.className = 'data-block';
+
+      const skills = Array.isArray(user.profile?.skills) ? user.profile.skills : [];
+
+      block.appendChild(renderRow('Логин', user.username));
+      block.appendChild(renderRow('Уровень', user.profile?.level ?? 1));
+      block.appendChild(renderRow('Опыт (XP)', user.profile?.xp ?? 0));
+      block.appendChild(renderRow('Навыки', skills.length ? skills.join(', ') : 'Нет навыков'));
+      if (user.createdAt) {
+        block.appendChild(renderRow('Регистрация', new Date(user.createdAt).toLocaleString('ru-RU')));
+      }
+
+      userInfoDiv.replaceChildren(block);
+      logoutWrapper.hidden = false;
+    }
+
+    function renderMessage(text) {
+      const paragraph = document.createElement('p');
+      paragraph.className = 'hint';
+      paragraph.textContent = text;
+
+      const link = document.createElement('a');
+      link.href = 'login.html';
+      link.textContent = 'Перейти ко входу';
+
+      const wrapper = document.createElement('div');
+      wrapper.className = 'data-block';
+      wrapper.appendChild(paragraph);
+      wrapper.appendChild(link);
+
+      userInfoDiv.replaceChildren(wrapper);
+    }
+
+    async function loadUser() {
+      try {
+        const response = await fetch('/api/me', { credentials: 'same-origin' });
+
+        if (response.status === 401) {
+          renderMessage('Вы не авторизованы.');
+          return;
+        }
+        if (!response.ok) {
+          renderMessage('Не удалось получить данные пользователя.');
+          return;
+        }
+
+        const result = await response.json();
+        renderUser(result.user);
+      } catch (error) {
+        console.error(error);
+        renderMessage('Сервер недоступен. Запустите его командой «npm start».');
+      }
+    }
+
+    document.getElementById('logoutLink').addEventListener('click', async (event) => {
+      event.preventDefault();
+      try {
+        await fetch('/api/logout', { method: 'POST', credentials: 'same-origin' });
+      } catch (error) {
+        console.error(error);
+      }
+      window.location.href = 'index.html';
+    });
+
+    loadUser();
   </script>
 </body>
 </html>

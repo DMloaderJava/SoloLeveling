@@ -200,6 +200,7 @@
       100% { box-shadow: 0 0 10px #00ff00; }
     }
   </style>
+  <script src="assets/skills-store.js"></script>
 </head>
 <body>
   <a href="index.html" class="home-button">🏠</a>
@@ -241,6 +242,9 @@
     let activeNode = null;
     let xp = 0;
     let currentLevel = 1;
+    // Пройденные уровни сохраняются, иначе после перезагрузки
+    // дерево навыков сбрасывалось в исходное состояние.
+    let completedLevels = new Set();
     let timeLeft = 0; // глобальная переменная для оставшегося времени
     const skillTree = document.getElementById('skillTree');
     const words = ['ПАМЯТЬ', 'КОД', 'ТРЕНИРОВКА', 'МОЗГ', 'ЛОГИКА', 'ВЕТКА', 'ПРОГРЕСС', 'СЛОВО', 'БУКВА', 'ТЕСТ'];
@@ -288,9 +292,9 @@
       
       node.innerHTML = `Уровень ${level}<br>Speed x${speed.toFixed(1)}`;
       
-      if (level < currentLevel) {
+      if (completedLevels.has(level)) {
         node.classList.add('completed');
-      } else if (level === currentLevel) {
+      } else if (level <= currentLevel) {
         node.classList.add('unlocked');
       } else {
         node.classList.add('locked');
@@ -349,26 +353,27 @@
     function saveProgress() {
       const data = {
         xp: xp,
-        currentLevel: currentLevel
+        currentLevel: currentLevel,
+        completedLevels: Array.from(completedLevels)
       };
       localStorage.setItem('memoryTrainerData', JSON.stringify(data));
     }
 
     function loadProgress() {
       const data = localStorage.getItem('memoryTrainerData');
-      if (data) {
-        try {
-          const parsed = JSON.parse(data);
-          xp = parsed.xp || 0;
-          currentLevel = parsed.currentLevel || 1;
-          document.getElementById('xpCounter').textContent = xp;
-          const progress = (xp % 100);
-          document.getElementById('xpProgress').style.width = `${progress}%`;
-        } catch (e) {
-          console.error('Ошибка загрузки данных:', e);
-          xp = 0;
-          currentLevel = 1;
-        }
+      if (!data) return;
+
+      try {
+        const parsed = JSON.parse(data);
+        xp = Number(parsed.xp) || 0;
+        currentLevel = Number(parsed.currentLevel) || 1;
+        completedLevels = new Set(Array.isArray(parsed.completedLevels) ? parsed.completedLevels : []);
+        renderXp();
+      } catch (e) {
+        console.error('Ошибка загрузки данных:', e);
+        xp = 0;
+        currentLevel = 1;
+        completedLevels = new Set();
       }
     }
 
@@ -436,25 +441,32 @@
     }
 
     function checkAnswer() {
-      const userAnswer = document.getElementById('numberInput').value.toUpperCase().trim();
+      const rawAnswer = document.getElementById('numberInput').value.trim();
       const feedback = document.getElementById('feedback');
       const isWordLevel = activeNode.getAttribute('data-type') === 'word';
-      const correctAnswer = currentNumber.toString();
-      
-      if (userAnswer === correctAnswer) {
+      const correctAnswer = String(currentNumber);
+
+      // Слова сравниваем без учёта регистра, числа — как есть.
+      const userAnswer = isWordLevel ? rawAnswer.toUpperCase() : rawAnswer;
+      const expected = isWordLevel ? correctAnswer.toUpperCase() : correctAnswer;
+
+      if (userAnswer === expected) {
         feedback.textContent = 'Правильно!';
         feedback.style.color = '#00ff00';
+        activeNode.classList.remove('unlocked');
         activeNode.classList.add('completed');
-        updateXP(parseInt(activeNode.getAttribute('data-xp')));
-        
+
         const completedLevel = parseInt(activeNode.getAttribute('data-level'));
+        completedLevels.add(completedLevel);
+        updateXP(parseInt(activeNode.getAttribute('data-xp')));
+
         const nextLevel = completedLevel + 1;
+        currentLevel = Math.max(currentLevel, nextLevel);
         const nextNode = document.querySelector(`.skill-node[data-level="${nextLevel}"]`);
         if (nextNode) {
           nextNode.classList.remove('locked');
           nextNode.classList.add('unlocked');
         } else {
-          currentLevel = nextLevel;
           createLevelNode(nextLevel);
         }
         saveProgress();
@@ -466,11 +478,23 @@
       }
     }
 
-    function updateXP(amount) {
-      xp += amount;
+    function renderXp() {
       document.getElementById('xpCounter').textContent = xp;
-      const progress = (xp % 100);
-      document.getElementById('xpProgress').style.width = `${progress}%`;
+      document.getElementById('xpProgress').style.width = `${xp % 100}%`;
+    }
+
+    function updateXP(amount) {
+      const gained = Number(amount) || 0;
+      xp += gained;
+      renderXp();
+      saveProgress();
+
+      // Опыт из тренажёра теперь попадает и в навыки на главной странице.
+      const result = window.SkillsStore && SkillsStore.awardXp(gained);
+      if (result && result.levelsGained > 0) {
+        const feedback = document.getElementById('feedback');
+        feedback.textContent = `Правильно! Навык «${result.skill.name}» — уровень ${result.skill.level}!`;
+      }
     }
 
     skillTree.addEventListener('mousedown', (e) => {
@@ -527,10 +551,10 @@
 
     document.addEventListener("DOMContentLoaded", () => {
       loadProgress();
-      for (let level = 1; level < currentLevel; level++) {
+      const maxLevel = Math.max(currentLevel, ...completedLevels, 1);
+      for (let level = 1; level <= maxLevel; level++) {
         createLevelNode(level);
       }
-      createLevelNode(currentLevel);
       updateAllConnections();
     });
   </script>

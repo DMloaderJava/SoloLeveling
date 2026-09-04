@@ -3,129 +3,97 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Регистрация</title>
-  <style>
-    /* Стили из index.html */
-    body {
-      font-family: Arial, sans-serif;
-      background: linear-gradient(270deg, #0a0a0a, #101010, #0a0a0a);
-      color: #e0e0e0;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      min-height: 100vh;
-      margin: 0;
-      padding: 20px;
-    }
-    
-    .auth-container {
-      background: rgba(0, 0, 0, 0.7);
-      padding: 30px;
-      border-radius: 10px;
-      box-shadow: 0 0 20px rgba(0,204,255,0.3);
-      width: 100%;
-      max-width: 400px;
-    }
-
-    .auth-form {
-      display: flex;
-      flex-direction: column;
-      gap: 15px;
-    }
-
-    .auth-form input {
-      padding: 10px;
-      border: 1px solid #00ccff;
-      border-radius: 5px;
-      background: rgba(255,255,255,0.1);
-      color: #fff;
-      font-size: 16px;
-    }
-
-    .auth-form button {
-      padding: 12px;
-      background: #00ccff;
-      border: none;
-      border-radius: 5px;
-      color: #000;
-      font-weight: bold;
-      cursor: pointer;
-      transition: 0.3s;
-    }
-
-    .auth-form button:hover {
-      background: #00aee0;
-    }
-
-    .links {
-      margin-top: 20px;
-      text-align: center;
-    }
-
-    .links a {
-      color: #00ccff;
-      text-decoration: none;
-    }
-  </style>
+  <title>Вход и регистрация</title>
+  <link rel="stylesheet" href="assets/auth.css">
 </head>
 <body>
-  <div class="auth-container">
-    <form class="auth-form" id="loginForm">
-      <h2 style="text-align: center; color: #00ccff">Регистрация</h2>
-      <input type="text" id="username" placeholder="Логин" required>
-      <input type="password" id="password" placeholder="Пароль" required>
-      <button type="submit">Зарегистрироваться</button>
+  <div class="card">
+    <h2>Вход / Регистрация</h2>
+
+    <form class="auth-form" id="authForm" autocomplete="on">
+      <input type="text" id="username" name="username" placeholder="Логин" autocomplete="username"
+             minlength="3" maxlength="32" required>
+      <input type="password" id="password" name="password" placeholder="Пароль"
+             autocomplete="current-password" minlength="6" maxlength="128" required>
+
+      <div class="btn-row">
+        <button type="submit" class="btn" id="loginBtn">Войти</button>
+        <button type="button" class="btn btn--secondary" id="registerBtn">Зарегистрироваться</button>
+      </div>
+
+      <p class="hint">Логин: 3–32 символа. Пароль: минимум 6 символов.</p>
+      <p class="message" id="message" role="status" aria-live="polite"></p>
     </form>
+
     <div class="links">
-      <a href="index.html">Войти как гость</a>
+      <a href="index.html">Продолжить как гость</a>
     </div>
   </div>
 
   <script>
-    document.getElementById('loginForm').addEventListener('submit', function(e) {
-      e.preventDefault();
-      
+    const form = document.getElementById('authForm');
+    const messageEl = document.getElementById('message');
+    const loginBtn = document.getElementById('loginBtn');
+    const registerBtn = document.getElementById('registerBtn');
+
+    function showMessage(text, kind) {
+      messageEl.textContent = text;
+      messageEl.className = `message message--${kind}`;
+    }
+
+    function setBusy(busy) {
+      loginBtn.disabled = busy;
+      registerBtn.disabled = busy;
+    }
+
+    /**
+     * Отправляет учётные данные на сервер.
+     * Пароль уходит только в теле запроса и нигде не сохраняется на клиенте —
+     * состояние входа держит httpOnly-кука сессии.
+     */
+    async function submitCredentials(endpoint) {
       const username = document.getElementById('username').value.trim();
       const password = document.getElementById('password').value;
-      
-      // Получаем список пользователей из localStorage, если он есть
-      let users = JSON.parse(localStorage.getItem('users')) || [];
-      
-      // Проверяем, существует ли уже пользователь с таким логином
-      const existingUser = users.find(user => user.username === username);
-      
-      if (existingUser) {
-        // Если пароль совпадает, то пропускаем регистрацию и авторизуем пользователя
-        if (existingUser.password === password) {
-          localStorage.setItem('userData', JSON.stringify(existingUser));
-          window.location.href = 'userinfo.html';
-          return;
-        } else {
-          alert("Пользователь с таким логином уже существует, но пароль не совпадает!");
-          return;
-        }
-      }
-      
-      // Если пользователь не найден, создаём нового
-      const userData = {
-        username,
-        password,
-        profile: {
-          level: 1,
-          xp: 0,
-          skills: []
-        }
-      };
 
-      // Добавляем нового пользователя в список
-      users.push(userData);
-      // Сохраняем обновлённый список пользователей в localStorage
-      localStorage.setItem('users', JSON.stringify(users));
-      // Сохраняем данные текущего пользователя для дальнейшего использования
-      localStorage.setItem('userData', JSON.stringify(userData));
-      
-      window.location.href = 'userinfo.html';
+      if (!username || !password) {
+        showMessage('Заполните логин и пароль.', 'error');
+        return;
+      }
+
+      setBusy(true);
+      showMessage('Отправляем данные…', 'success');
+
+      try {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ username, password })
+        });
+
+        const result = await response.json().catch(() => ({}));
+
+        if (!response.ok || !result.success) {
+          showMessage(result.message || 'Не удалось выполнить запрос.', 'error');
+          return;
+        }
+
+        showMessage(result.message || 'Готово!', 'success');
+        window.location.href = 'userinfo.html';
+      } catch (error) {
+        console.error(error);
+        showMessage('Сервер недоступен. Запустите его командой «npm start».', 'error');
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      submitCredentials('/api/login');
     });
+
+    registerBtn.addEventListener('click', () => submitCredentials('/api/register'));
   </script>
 </body>
 </html>
