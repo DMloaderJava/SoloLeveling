@@ -1,0 +1,31 @@
+{
+  "name": "solo-leveling",
+  "version": "1.1.0",
+  "description": "Веб-приложение для прокачки навыков и тренировки памяти в стиле «Поднятие уровня в одиночку»",
+  "main": "server.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test test/*.test.js"
+  },
+  "keywords": [
+    "gamification",
+    "memory-training",
+    "skills",
+    "express"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.4.0",
+    "express-session": "^1.18.0",
+    "helmet": "^7.1.0"
+  },
+  "devDependencies": {
+    "jsdom": "^30.0.1"
+  }
+}

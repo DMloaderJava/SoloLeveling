@@ -1,0 +1,158 @@
+/* Общие стили страниц авторизации и профиля.
+   Раньше этот CSS был скопирован в login.html и userinfo.html. */
+
+:root {
+  --accent: #00ccff;
+  --accent-hover: #00aee0;
+  --danger: #ff5c5c;
+  --success: #4ade80;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', Arial, sans-serif;
+  background: linear-gradient(270deg, #0a0a0a, #101010, #0a0a0a);
+  color: #e0e0e0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  margin: 0;
+  padding: 20px;
+}
+
+.card {
+  background: rgba(0, 0, 0, 0.7);
+  padding: 30px;
+  border-radius: 10px;
+  box-shadow: 0 0 20px rgba(0, 204, 255, 0.3);
+  width: 100%;
+  max-width: 400px;
+}
+
+.card--wide {
+  max-width: 600px;
+}
+
+.card h2 {
+  text-align: center;
+  color: var(--accent);
+  margin-top: 0;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.auth-form input {
+  padding: 10px;
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  font-size: 16px;
+}
+
+.auth-form input:focus {
+  outline: 2px solid var(--accent);
+}
+
+.btn {
+  padding: 12px;
+  background: var(--accent);
+  border: none;
+  border-radius: 5px;
+  color: #000;
+  font-weight: bold;
+  font-size: 15px;
+  cursor: pointer;
+  transition: background 0.3s, opacity 0.3s;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn--secondary {
+  background: transparent;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+}
+
+.btn--secondary:hover:not(:disabled) {
+  background: rgba(0, 204, 255, 0.12);
+}
+
+.btn-row {
+  display: flex;
+  gap: 10px;
+}
+
+.btn-row .btn {
+  flex: 1;
+}
+
+.hint {
+  font-size: 13px;
+  color: #8b98a5;
+  text-align: center;
+  margin: 0;
+}
+
+.message {
+  min-height: 20px;
+  font-size: 14px;
+  text-align: center;
+  margin: 0;
+}
+
+.message--error {
+  color: var(--danger);
+}
+
+.message--success {
+  color: var(--success);
+}
+
+.links {
+  margin-top: 20px;
+  text-align: center;
+}
+
+.links a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.links a:hover {
+  text-decoration: underline;
+}
+
+.section {
+  margin-top: 20px;
+}
+
+.section h3 {
+  margin-bottom: 10px;
+  color: var(--accent);
+}
+
+.data-block {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 15px;
+  border-radius: 5px;
+}
+
+.data-block p {
+  margin: 6px 0;
+}
