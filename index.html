@@ -2,7 +2,8 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0a0a0a" />
   <title>Поднятие уровня в одиночку – Главная</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
@@ -57,6 +58,16 @@
       justify-content: center;
       align-items: center;
       z-index: 1000;
+      box-sizing: border-box;
+      overflow-y: auto;
+      padding: 16px;
+      -webkit-overflow-scrolling: touch;
+    }
+    
+    /* margin:auto вместо центрирования через align-items:
+       модалка выше экрана прокручивается, а не обрезается сверху */
+    .modal-overlay > div {
+      margin: auto;
     }
     
     .notification {
@@ -103,19 +114,106 @@
       text-decoration: line-through;
       color: #888;
     }
+    
+    /* ===== Адаптивность под мобильные устройства ===== */
+    html {
+      -webkit-text-size-adjust: 100%;
+    }
+    
+    button, a, input, select, textarea {
+      touch-action: manipulation;
+    }
+    
+    /* Отступ под фиксированный сайдбар — только на десктопе */
+    @media (min-width: 768px) {
+      body { padding-left: 240px; }
+    }
+    
+    /* Контент: на мобильных сверху место под кнопку меню */
+    .main-content {
+      padding: 16px;
+      padding-top: 76px;
+    }
+    
+    @media (min-width: 768px) {
+      .main-content { padding: 24px; }
+    }
+    
+    /* Кнопка меню не залезает под «челку» iPhone */
+    #sidebarToggle {
+      top: calc(12px + env(safe-area-inset-top, 0px));
+      left: calc(12px + env(safe-area-inset-left, 0px));
+    }
+    
+    @media (min-width: 768px) {
+      #sidebarToggle, #sidebarBackdrop { display: none; }
+    }
+    
+    /* Затемнение фона под открытым сайдбаром */
+    #sidebarBackdrop {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.6);
+      z-index: 40;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+    }
+    
+    /* ===== Экраны меньше md (768px) ===== */
+    @media (max-width: 767.98px) {
+      /* Сайдбар прячется за левый край и выезжает по кнопке */
+      .sidebar {
+        animation: none;
+        transform: translateX(-100%);
+        transition: transform 0.3s ease;
+        max-width: 85vw;
+      }
+      
+      body.sidebar-open .sidebar {
+        transform: translateX(0);
+      }
+      
+      /* Фон под сайдбаром не скроллится */
+      body.sidebar-open {
+        overflow: hidden;
+      }
+      
+      body.sidebar-open #sidebarBackdrop {
+        opacity: 1;
+        pointer-events: auto;
+      }
+      
+      /* Заголовок сайдбара не наезжает на кнопку-гамбургер */
+      .sidebar .sidebar-header {
+        padding-left: 60px;
+      }
+      
+      /* Уведомление — на всю ширину экрана */
+      .notification {
+        left: 16px;
+        right: 16px;
+        bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+        text-align: center;
+        box-sizing: border-box;
+      }
+    }
   </style>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <script src="assets/skills-store.js"></script>
 </head>
-<body class="text-gray-200 min-h-screen relative pl-[240px]">
+<body class="text-gray-200 min-h-screen relative">
   <!-- Stars Background -->
   <canvas id="starsCanvas"></canvas>
   
   <!-- Enhanced Sidebar -->
-  <div class="sidebar fixed top-0 left-0 w-60 h-full bg-black bg-opacity-70 backdrop-blur-md border-r border-cyan-500 border-opacity-30 shadow-lg z-50 flex flex-col overflow-hidden">
+  <div id="sidebar" class="sidebar fixed top-0 left-0 w-60 h-full bg-black bg-opacity-70 backdrop-blur-md border-r border-cyan-500 border-opacity-30 shadow-lg z-50 flex flex-col overflow-hidden">
     <!-- Sidebar Header -->
-    <div class="p-4 border-b border-cyan-500 border-opacity-20">
+    <div class="sidebar-header p-4 border-b border-cyan-500 border-opacity-20">
       <div class="flex items-center justify-start space-x-3">
         <div class="w-8 h-8 rounded-full bg-cyan-500 flex items-center justify-center">
           <i class="fas fa-user-shield text-black"></i>
@@ -191,18 +289,21 @@
   </div>
   
   <!-- Mobile Sidebar Toggle -->
-  <button id="sidebarToggle" class="md:hidden fixed top-4 left-4 z-50 w-10 h-10 rounded-full bg-cyan-500 text-black flex items-center justify-center shadow-lg">
+  <button id="sidebarToggle" class="fixed z-50 w-11 h-11 rounded-full bg-cyan-500 text-black flex items-center justify-center shadow-lg" aria-label="Открыть меню" aria-expanded="false" aria-controls="sidebar">
     <i class="fas fa-bars"></i>
   </button>
   
+  <!-- Затемнение под мобильным сайдбаром -->
+  <div id="sidebarBackdrop"></div>
+  
   <!-- Main Content -->
-  <div class="main-content p-6">
+  <div class="main-content">
     <!-- Header -->
-    <h1 class="text-3xl md:text-4xl font-bold text-center text-cyan-400 mb-8">Поднятие уровня в одиночку</h1>
+    <h1 class="text-2xl sm:text-3xl md:text-4xl font-bold text-center text-cyan-400 mb-6 md:mb-8">Поднятие уровня в одиночку</h1>
     
     <!-- Hero Image -->
-    <div class="flex justify-center mb-8">
-      <img src="assets/hero.png" alt="Изображение сайта" class="rounded-lg border border-cyan-500 shadow-lg shadow-cyan-500/30 max-h-48 md:max-h-64" id="heroImage">
+    <div class="flex justify-center mb-6 md:mb-8">
+      <img src="assets/hero.png" alt="Изображение сайта" class="rounded-lg border border-cyan-500 shadow-lg shadow-cyan-500/30 max-h-48 md:max-h-64 max-w-full h-auto" id="heroImage">
     </div>
     
     <!-- Upgrade Button -->
@@ -213,17 +314,17 @@
     </div>
     
     <!-- Current Skill Section -->
-    <div class="bg-black bg-opacity-50 border border-cyan-500 rounded-xl p-6 mb-8 shadow-lg shadow-cyan-500/20 backdrop-blur-sm">
+    <div class="bg-black bg-opacity-50 border border-cyan-500 rounded-xl p-4 sm:p-6 mb-6 md:mb-8 shadow-lg shadow-cyan-500/20 backdrop-blur-sm">
       <h2 class="text-xl font-semibold text-cyan-400 mb-4">Текущий навык</h2>
       
       <div class="flex items-center justify-between">
-        <button class="text-2xl bg-cyan-500 hover:bg-cyan-600 text-black rounded-full w-10 h-10 flex items-center justify-center transition-all" onclick="prevSkill()">
+        <button class="text-2xl bg-cyan-500 hover:bg-cyan-600 text-black rounded-full w-11 h-11 flex-shrink-0 flex items-center justify-center transition-all" onclick="prevSkill()" aria-label="Предыдущий навык">
           <i class="fas fa-chevron-left"></i>
         </button>
         
-        <div class="skill-block bg-gradient-to-br from-gray-900 to-black border border-cyan-500 rounded-lg p-5 mx-4 flex-1 cursor-pointer transform hover:scale-[1.01] transition-all hover:shadow-lg hover:shadow-cyan-500/20" 
+        <div class="skill-block bg-gradient-to-br from-gray-900 to-black border border-cyan-500 rounded-lg p-4 sm:p-5 mx-2 sm:mx-4 flex-1 min-w-0 cursor-pointer transform hover:scale-[1.01] transition-all hover:shadow-lg hover:shadow-cyan-500/20" 
              id="skillBlock" onclick="openSkillModal()">
-          <h2 class="text-xl font-bold text-cyan-400 mb-2" id="skillNameDisplay">Название навыка</h2>
+          <h2 class="text-lg sm:text-xl font-bold text-cyan-400 mb-2 break-words" id="skillNameDisplay">Название навыка</h2>
           <div class="skill-info">
             <div class="text-gray-300 mb-3">
               Уровень: <span class="font-bold text-white" id="skillLevelDisplay">1</span>
@@ -240,25 +341,25 @@
           </div>
         </div>
         
-        <button class="text-2xl bg-cyan-500 hover:bg-cyan-600 text-black rounded-full w-10 h-10 flex items-center justify-center transition-all" onclick="nextSkill()">
+        <button class="text-2xl bg-cyan-500 hover:bg-cyan-600 text-black rounded-full w-11 h-11 flex-shrink-0 flex items-center justify-center transition-all" onclick="nextSkill()" aria-label="Следующий навык">
           <i class="fas fa-chevron-right"></i>
         </button>
       </div>
       
       <div class="mt-6 flex justify-center">
-        <button onclick="addNewSkill()" class="bg-cyan-500 hover:bg-cyan-600 text-black font-medium py-2 px-4 rounded-lg transition-all duration-300">
+        <button onclick="addNewSkill()" class="bg-cyan-500 hover:bg-cyan-600 text-black font-medium py-2.5 px-4 rounded-lg transition-all duration-300">
           <i class="fas fa-plus-circle mr-2"></i> Добавить новый навык
         </button>
       </div>
     </div>
     
     <!-- Tasks Section -->
-    <div class="bg-black bg-opacity-50 border border-cyan-500 rounded-xl p-6 mb-8 shadow-lg shadow-cyan-500/20 backdrop-blur-sm" id="allTaskSection">
+    <div class="bg-black bg-opacity-50 border border-cyan-500 rounded-xl p-4 sm:p-6 mb-6 md:mb-8 shadow-lg shadow-cyan-500/20 backdrop-blur-sm" id="allTaskSection">
       <h2 class="text-xl font-semibold text-cyan-400 mb-4">Все задания</h2>
       
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-4" id="newTaskForm">
-        <input type="text" id="newTaskInput" placeholder="Название задания" class="bg-gray-900 bg-opacity-70 border border-gray-700 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-cyan-500">
-        <input type="text" id="newTaskRewardInput" placeholder="Награда (XP)" class="bg-gray-900 bg-opacity-70 border border-gray-700 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-cyan-500">
+        <input type="text" id="newTaskInput" placeholder="Название задания" class="bg-gray-900 bg-opacity-70 border border-gray-700 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-cyan-500">
+        <input type="text" id="newTaskRewardInput" placeholder="Награда (XP)" inputmode="numeric" class="bg-gray-900 bg-opacity-70 border border-gray-700 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-cyan-500">
         <textarea id="newTaskDescInput" placeholder="Описание задания" class="bg-gray-900 bg-opacity-70 border border-gray-700 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-cyan-500 lg:col-span-2"></textarea>
         <select id="newTaskTypeSelect" class="bg-gray-900 bg-opacity-70 border border-gray-700 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-cyan-500 text-gray-200">
           <option value="daily">Ежедневное</option>
@@ -274,36 +375,36 @@
     </div>
     
     <!-- Timer Section -->
-    <div class="bg-black bg-opacity-50 border border-cyan-500 rounded-xl p-6 shadow-lg shadow-cyan-500/20 backdrop-blur-sm">
+    <div class="bg-black bg-opacity-50 border border-cyan-500 rounded-xl p-4 sm:p-6 shadow-lg shadow-cyan-500/20 backdrop-blur-sm">
       <h2 class="text-xl font-semibold text-cyan-400 mb-4">Таймер</h2>
       
       <div class="text-center mb-4">
-        <div class="text-5xl font-bold text-cyan-400 tracking-wider font-mono" id="timerDisplay">00:00:00</div>
+        <div class="text-4xl sm:text-5xl font-bold text-cyan-400 tracking-wider font-mono" id="timerDisplay">00:00:00</div>
       </div>
       
-      <div class="flex justify-center gap-3 mb-4">
-        <button id="startTimerBtn" onclick="startTimer()" class="bg-green-500 hover:bg-green-600 text-white font-medium py-2 px-4 rounded-lg transition-all duration-300">
+      <div class="flex flex-wrap justify-center gap-2 sm:gap-3 mb-4">
+        <button id="startTimerBtn" onclick="startTimer()" class="bg-green-500 hover:bg-green-600 text-white font-medium py-2.5 px-4 rounded-lg transition-all duration-300 flex-1 min-w-[104px] sm:flex-none sm:min-w-0">
           <i class="fas fa-play mr-2"></i> Старт
         </button>
-        <button id="pauseTimerBtn" onclick="pauseTimer()" class="bg-yellow-500 hover:bg-yellow-600 text-white font-medium py-2 px-4 rounded-lg transition-all duration-300">
+        <button id="pauseTimerBtn" onclick="pauseTimer()" class="bg-yellow-500 hover:bg-yellow-600 text-white font-medium py-2.5 px-4 rounded-lg transition-all duration-300 flex-1 min-w-[104px] sm:flex-none sm:min-w-0">
           <i class="fas fa-pause mr-2"></i> Пауза
         </button>
-        <button id="resetTimerBtn" onclick="resetTimer()" class="bg-red-500 hover:bg-red-600 text-white font-medium py-2 px-4 rounded-lg transition-all duration-300">
+        <button id="resetTimerBtn" onclick="resetTimer()" class="bg-red-500 hover:bg-red-600 text-white font-medium py-2.5 px-4 rounded-lg transition-all duration-300 flex-1 min-w-[104px] sm:flex-none sm:min-w-0">
           <i class="fas fa-stop mr-2"></i> Сброс
         </button>
       </div>
       
-      <div class="flex justify-center gap-3">
-        <input type="number" id="hoursInput" placeholder="Часы" min="0" value="0" class="bg-gray-900 bg-opacity-70 border border-gray-700 rounded-lg px-4 py-2 w-20 text-center focus:outline-none focus:ring-2 focus:ring-cyan-500">
-        <input type="number" id="minutesInput" placeholder="Минуты" min="0" value="0" class="bg-gray-900 bg-opacity-70 border border-gray-700 rounded-lg px-4 py-2 w-20 text-center focus:outline-none focus:ring-2 focus:ring-cyan-500">
-        <input type="number" id="secondsInput" placeholder="Секунды" min="0" value="0" class="bg-gray-900 bg-opacity-70 border border-gray-700 rounded-lg px-4 py-2 w-20 text-center focus:outline-none focus:ring-2 focus:ring-cyan-500">
+      <div class="flex flex-wrap justify-center gap-2 sm:gap-3">
+        <input type="number" id="hoursInput" placeholder="Часы" inputmode="numeric" min="0" value="0" class="bg-gray-900 bg-opacity-70 border border-gray-700 rounded-lg px-2 py-2 w-16 sm:w-20 text-center focus:outline-none focus:ring-2 focus:ring-cyan-500">
+        <input type="number" id="minutesInput" placeholder="Минуты" inputmode="numeric" min="0" value="0" class="bg-gray-900 bg-opacity-70 border border-gray-700 rounded-lg px-2 py-2 w-16 sm:w-20 text-center focus:outline-none focus:ring-2 focus:ring-cyan-500">
+        <input type="number" id="secondsInput" placeholder="Секунды" inputmode="numeric" min="0" value="0" class="bg-gray-900 bg-opacity-70 border border-gray-700 rounded-lg px-2 py-2 w-16 sm:w-20 text-center focus:outline-none focus:ring-2 focus:ring-cyan-500">
       </div>
     </div>
   </div>
   
   <!-- Modals -->
   <div class="modal-overlay" id="skillModalOverlay">
-    <div class="bg-gray-900 border border-cyan-500 rounded-lg p-6 w-full max-w-md mx-4">
+    <div class="bg-gray-900 border border-cyan-500 rounded-lg p-4 sm:p-6 w-full max-w-md">
       <h3 class="text-xl font-bold text-cyan-400 mb-4">Редактировать навык</h3>
       
       <div class="space-y-4 mb-4">
@@ -340,7 +441,7 @@
   </div>
   
   <div class="modal-overlay" id="taskModalOverlay">
-    <div class="bg-gray-900 border border-cyan-500 rounded-lg p-6 w-full max-w-md mx-4">
+    <div class="bg-gray-900 border border-cyan-500 rounded-lg p-4 sm:p-6 w-full max-w-md">
       <h3 class="text-xl font-bold text-cyan-400 mb-4">Редактировать задание</h3>
       
       <div class="space-y-4 mb-4">
@@ -385,7 +486,7 @@
   </div>
   
   <div class="modal-overlay" id="skillsManagerOverlay">
-    <div class="bg-gray-900 border border-cyan-500 rounded-lg p-6 w-full max-w-md mx-4">
+    <div class="bg-gray-900 border border-cyan-500 rounded-lg p-4 sm:p-6 w-full max-w-md">
       <h3 class="text-xl font-bold text-cyan-400 mb-4">Мои навыки</h3>
       <div class="space-y-2 mb-4 max-h-80 overflow-y-auto" id="skillsManagerList"></div>
       <div class="flex justify-end gap-2">
@@ -564,7 +665,7 @@
         };
 
         const removeBtn = document.createElement("button");
-        removeBtn.className = "px-3 py-1 rounded text-sm bg-red-600 text-white disabled:opacity-40";
+        removeBtn.className = "px-3 py-2 min-h-[44px] rounded text-sm bg-red-600 text-white disabled:opacity-40 flex-shrink-0";
         removeBtn.innerText = "Удалить";
         removeBtn.disabled = Boolean(skill.default);
         removeBtn.title = skill.default ? "Дефолтный навык удалить нельзя" : "Удалить навык";
@@ -652,14 +753,14 @@
       
       data.tasks.forEach(task => {
         const div = document.createElement("div");
-        div.className = `flex justify-between items-center p-4 rounded-lg bg-gray-900 bg-opacity-60 border ${task.completed ? 'border-gray-700' : 'border-cyan-500'} transition-all`;
+        div.className = `flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 p-4 rounded-lg bg-gray-900 bg-opacity-60 border ${task.completed ? 'border-gray-700' : 'border-cyan-500'} transition-all`;
         div.dataset.id = task.id;
     
         const infoBlock = document.createElement("div");
-        infoBlock.className = "space-y-1";
+        infoBlock.className = "space-y-1 min-w-0";
     
         const nameSpan = document.createElement("h3");
-        nameSpan.className = `font-medium ${task.completed ? 'text-gray-500 line-through' : 'text-white'}`;
+        nameSpan.className = `font-medium break-words ${task.completed ? 'text-gray-500 line-through' : 'text-white'}`;
         nameSpan.innerText = task.name;
     
         const rewardSpan = document.createElement("p");
@@ -686,20 +787,20 @@
         div.appendChild(infoBlock);
     
         const btnGroup = document.createElement("div");
-        btnGroup.className = "flex space-x-2";
+        btnGroup.className = "flex flex-wrap gap-2 w-full sm:w-auto flex-shrink-0";
     
         const completeBtn = document.createElement("button");
-        completeBtn.className = `px-3 py-1 rounded text-sm ${task.completed ? 'bg-gray-600 text-gray-300' : 'bg-green-600 text-white'}`;
+        completeBtn.className = `flex-1 sm:flex-none min-h-[44px] px-3 py-2 rounded text-sm ${task.completed ? 'bg-gray-600 text-gray-300' : 'bg-green-600 text-white'}`;
         completeBtn.innerText = task.completed ? "Выполнено" : "Выполнить";
         completeBtn.onclick = () => completeTask(task.id);
     
         const editBtn = document.createElement("button");
-        editBtn.className = "px-3 py-1 rounded text-sm bg-yellow-600 text-white";
+        editBtn.className = "flex-1 sm:flex-none min-h-[44px] px-3 py-2 rounded text-sm bg-yellow-600 text-white";
         editBtn.innerText = "Ред.";
         editBtn.onclick = () => openTaskModal(task.id);
     
         const deleteBtn = document.createElement("button");
-        deleteBtn.className = "px-3 py-1 rounded text-sm bg-red-600 text-white";
+        deleteBtn.className = "flex-1 sm:flex-none min-h-[44px] px-3 py-2 rounded text-sm bg-red-600 text-white";
         deleteBtn.innerText = "Удалить";
         deleteBtn.onclick = () => {
           if(confirm("Удалить задание?")) {
@@ -986,6 +1087,19 @@
       });
       document.getElementById("jsonFileInput").addEventListener("change", uploadDataFromJSON);
       document.getElementById('sidebarToggle').addEventListener('click', toggleSidebar);
+      document.getElementById('sidebarBackdrop').addEventListener('click', closeSidebar);
+      // Любой пункт меню закрывает сайдбар на мобильных
+      document.querySelectorAll('.sidebar .sidebar-menu-item, #regBtn').forEach(item => {
+        item.addEventListener('click', closeSidebar);
+      });
+      // Esc закрывает сайдбар
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') closeSidebar();
+      });
+      // При возврате к десктопному размеру сайдбар всегда виден
+      window.addEventListener('resize', () => {
+        if (window.innerWidth >= 768) closeSidebar();
+      });
       
       // Initial renders
       updateXpSkillSelect();
@@ -994,10 +1108,33 @@
       animateStarfield();
     });
 
-    // Mobile Sidebar Toggle
+    // Mobile Sidebar: открытие/закрытие выезжающего меню
+    function isSidebarOpen() {
+      return document.body.classList.contains('sidebar-open');
+    }
+
+    function openSidebar() {
+      document.body.classList.add('sidebar-open');
+      syncSidebarToggle();
+    }
+
+    function closeSidebar() {
+      document.body.classList.remove('sidebar-open');
+      syncSidebarToggle();
+    }
+
     function toggleSidebar() {
-      const sidebar = document.querySelector('.sidebar');
-      sidebar.classList.toggle('translate-x-[-240px]');
+      isSidebarOpen() ? closeSidebar() : openSidebar();
+    }
+
+    function syncSidebarToggle() {
+      const btn = document.getElementById('sidebarToggle');
+      if (!btn) return;
+      const icon = btn.querySelector('i');
+      const open = isSidebarOpen();
+      if (icon) icon.className = open ? 'fas fa-xmark' : 'fas fa-bars';
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      btn.setAttribute('aria-label', open ? 'Закрыть меню' : 'Открыть меню');
     }
 
     // Starfield Animation
