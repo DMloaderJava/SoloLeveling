@@ -10,7 +10,10 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node-version: [18.x, 20.x, 22.x]
+        # jsdom@30 (devDependency) требует Node ^22.22.2 || ^24.15.0 || >=26,
+        # поэтому Node 18/20 из матрицы убрать — их задания падали всегда,
+        # включая main (см. run 33902064439).
+        node-version: [22.x, 24.x]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
