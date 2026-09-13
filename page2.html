@@ -2,7 +2,8 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#1a1a1a">
   <title>Тренировка памяти</title>
   <style>
     body {
@@ -21,11 +22,16 @@
       position: fixed;
       top: 0;
       right: 0;
-      padding: 20px;
+      padding: 12px 16px;
       background: linear-gradient(135deg, #333, #555);
       border-left: 3px solid #ff3333;
       border-bottom: 3px solid #ff3333;
       z-index: 1000;
+      max-width: calc(100vw - 76px);
+      box-sizing: border-box;
+    }
+    @media (min-width: 480px) {
+      .header { padding: 20px; max-width: none; }
     }
     .xp-bar {
       background: #444;
@@ -52,6 +58,9 @@
       position: absolute;
       width: 120px;
       height: 120px;
+      /* Узлы центрируются относительно left (25/50/75%),
+         чтобы не обрезаться на узких экранах */
+      transform: translateX(-50%);
       background: linear-gradient(135deg, #444, #222);
       border: 3px solid #666;
       border-radius: 15px;
@@ -66,6 +75,8 @@
       opacity: 0.7;
       -webkit-user-select: none;
       user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
     }
     .skill-node.unlocked {
       opacity: 1;
@@ -83,7 +94,7 @@
       opacity: 0.3;
     }
     .skill-node:hover:not(.locked):not(.completed) {
-      transform: scale(1.05);
+      transform: translateX(-50%) scale(1.05);
       box-shadow: 0 0 20px rgba(255, 0, 0, 0.4);
     }
     .connection-line {
@@ -101,27 +112,37 @@
       height: 100%;
       background: rgba(0, 0, 0, 0.9);
       z-index: 2000;
+      box-sizing: border-box;
+      padding: 16px;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
     }
+    /* margin:auto — модалка центрируется, но прокручивается,
+       если выше экрана (или открыта клавиатура) */
     .modal-content {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
+      position: relative;
+      margin: auto;
       background: #222;
       border-radius: 10px;
-      padding: 25px 30px;
+      padding: 20px;
       text-align: center;
       border: 2px solid #ff3333;
       box-shadow: 0 0 15px rgba(255, 51, 51, 0.7);
       animation: fadeIn 0.5s;
-      max-width: 90%;
+      width: 100%;
+      max-width: 420px;
+      box-sizing: border-box;
     }
     .modal-buttons {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 8px;
       margin-top: 20px;
     }
     .modal-buttons button {
-      margin: 0 7px;
-      padding: 8px 15px;
+      padding: 10px 18px;
+      min-height: 44px;
       font-size: 1em;
       cursor: pointer;
       border: none;
@@ -129,6 +150,7 @@
       background: linear-gradient(135deg, #333, #555);
       color: #ff4444;
       transition: background 0.3s, transform 0.2s;
+      touch-action: manipulation;
     }
     .modal-buttons button:hover {
       background: #ff3333;
@@ -136,10 +158,29 @@
       transform: scale(1.05);
     }
     .number-display {
-      font-size: 2.5em;
+      font-size: clamp(1.8em, 9vw, 2.5em);
       color: #00ffee;
       margin: 20px 0;
       animation: bounce 1s infinite;
+      overflow-wrap: anywhere;
+    }
+    .answer-input {
+      width: 100%;
+      max-width: 320px;
+      padding: 10px 12px;
+      font-size: 18px;
+      font-family: Arial, sans-serif;
+      border-radius: 5px;
+      border: 1px solid #555;
+      background: #111;
+      color: #fff;
+      text-align: center;
+      text-transform: uppercase;
+      box-sizing: border-box;
+      /* 16px+ — iOS Safari не приближает страницу при фокусе */
+    }
+    #feedback {
+      overflow-wrap: anywhere;
     }
     #timer {
       font-size: 1.5em;
@@ -159,22 +200,25 @@
     }
     .home-button {
       position: fixed;
-      top: 20px;
-      left: 20px;
+      /* С учётом «челки» и вырезов на мобильных */
+      top: calc(12px + env(safe-area-inset-top, 0px));
+      left: calc(12px + env(safe-area-inset-left, 0px));
       z-index: 1001;
-      font-size: 24px;
+      font-size: 22px;
       cursor: pointer;
       transition: transform 0.3s;
       text-decoration: none;
       color: #ff4444;
       background: rgba(0,0,0,0.7);
       border-radius: 50%;
-      width: 40px;
-      height: 40px;
+      width: 44px;
+      height: 44px;
       display: flex;
       align-items: center;
       justify-content: center;
       box-shadow: 0 0 10px rgba(255,68,68,0.5);
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
     }
     .home-button:hover {
       transform: scale(1.1);
@@ -226,7 +270,8 @@
       </div>
       <div id="stage2" style="display: none;">
         <h2>Введите ответ:</h2>
-        <input type="text" id="numberInput" style="padding: 5px; font-size: 1em; border-radius: 3px; border: 1px solid #555;">
+        <input type="text" id="numberInput" class="answer-input" autocomplete="off"
+               autocapitalize="none" spellcheck="false" enterkeyhint="done">
         <div class="modal-buttons" style="margin-top: 15px;">
           <button onclick="checkAnswer()">Проверить</button>
           <button onclick="closeModal()">Закрыть</button>
@@ -250,6 +295,7 @@
     const words = ['ПАМЯТЬ', 'КОД', 'ТРЕНИРОВКА', 'МОЗГ', 'ЛОГИКА', 'ВЕТКА', 'ПРОГРЕСС', 'СЛОВО', 'БУКВА', 'ТЕСТ'];
     const consonants = 'БВГДЖЗКЛМНПРСТФХЦЧШЩ';
     let isDragging = false, dragStartX = 0, dragStartY = 0;
+    let dragDistance = 0; // путь пальца/мыши: отличаем перетаскивание дерева от тапа по узлу
     let treePosition = { x: 0, y: 0 };
 
     function generateWord(length) {
@@ -271,7 +317,6 @@
       let leftPos;
       if (level === 1) {
         leftPos = "50%";
-        node.style.transform = "translateX(-50%)";
       } else if (level % 2 === 0) {
         leftPos = "25%";
       } else {
@@ -383,6 +428,8 @@
     }
 
     function startTraining(node) {
+      // Тап после перетаскивания дерева не должен открывать тренировку
+      if (dragDistance > 10) return;
       if (node.classList.contains('locked') || node.classList.contains('completed')) return;
       
       activeNode = node;
@@ -413,9 +460,11 @@
       
       document.getElementById('stage1').style.display = 'block';
       document.getElementById('stage2').style.display = 'none';
+      // Числовая клавиатура на мобильных для числовых уровней
+      document.getElementById('numberInput').setAttribute('inputmode', isWordLevel ? 'text' : 'numeric');
       document.getElementById('numberInput').value = '';
       document.getElementById('feedback').textContent = '';
-      document.getElementById('trainingModal').style.display = 'block';
+      document.getElementById('trainingModal').style.display = 'flex';
       
       clearInterval(timerInterval);
       timerInterval = setInterval(() => {
@@ -438,6 +487,14 @@
       clearInterval(timerInterval);
       document.getElementById('stage1').style.display = 'none';
       document.getElementById('stage2').style.display = 'block';
+      // Сразу фокусируем поле ответа: на мобильных откроется клавиатура
+      const input = document.getElementById('numberInput');
+      if (input) {
+        input.focus({ preventScroll: true });
+        if (typeof input.scrollIntoView === 'function') {
+          input.scrollIntoView({ block: 'nearest' });
+        }
+      }
     }
 
     function checkAnswer() {
@@ -499,6 +556,7 @@
 
     skillTree.addEventListener('mousedown', (e) => {
       isDragging = true;
+      dragDistance = 0;
       dragStartX = e.clientX;
       dragStartY = e.clientY;
       document.body.style.cursor = 'grabbing';
@@ -510,6 +568,7 @@
       e.preventDefault();
       const deltaX = e.clientX - dragStartX;
       const deltaY = e.clientY - dragStartY;
+      dragDistance += Math.abs(deltaX) + Math.abs(deltaY);
       treePosition.x += deltaX;
       treePosition.y += deltaY;
       skillTree.style.transform = `translate(${treePosition.x}px, ${treePosition.y}px)`;
@@ -525,6 +584,7 @@
     
     skillTree.addEventListener('touchstart', (e) => {
       isDragging = true;
+      dragDistance = 0;
       const touch = e.touches[0];
       dragStartX = touch.clientX;
       dragStartY = touch.clientY;
@@ -537,6 +597,7 @@
       const touch = e.touches[0];
       const deltaX = touch.clientX - dragStartX;
       const deltaY = touch.clientY - dragStartY;
+      dragDistance += Math.abs(deltaX) + Math.abs(deltaY);
       treePosition.x += deltaX;
       treePosition.y += deltaY;
       skillTree.style.transform = `translate(${treePosition.x}px, ${treePosition.y}px)`;

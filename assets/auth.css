@@ -20,8 +20,12 @@ body {
   justify-content: center;
   align-items: center;
   min-height: 100vh;
+  /* dvh — корректная высота с учётом адресной строки мобильного браузера */
+  min-height: 100dvh;
   margin: 0;
   padding: 20px;
+  padding-left: calc(20px + env(safe-area-inset-left, 0px));
+  padding-right: calc(20px + env(safe-area-inset-right, 0px));
 }
 
 .card {
@@ -50,12 +54,14 @@ body {
 }
 
 .auth-form input {
-  padding: 10px;
+  padding: 12px;
+  min-height: 44px; /* комфортная сенсорная цель */
   border: 1px solid var(--accent);
   border-radius: 5px;
   background: rgba(255, 255, 255, 0.1);
   color: #fff;
-  font-size: 16px;
+  font-size: 16px; /* 16px — iOS Safari не приближает страницу при фокусе */
+  box-sizing: border-box;
 }
 
 .auth-form input:focus {
@@ -64,6 +70,7 @@ body {
 
 .btn {
   padding: 12px;
+  min-height: 44px; /* комфортная сенсорная цель */
   background: var(--accent);
   border: none;
   border-radius: 5px;
@@ -72,6 +79,8 @@ body {
   font-size: 15px;
   cursor: pointer;
   transition: background 0.3s, opacity 0.3s;
+  touch-action: manipulation;
+  box-sizing: border-box;
 }
 
 .btn:hover:not(:disabled) {
@@ -95,11 +104,13 @@ body {
 
 .btn-row {
   display: flex;
+  flex-wrap: wrap; /* на узких экранах кнопки переносятся, а не сжимаются */
   gap: 10px;
 }
 
 .btn-row .btn {
   flex: 1;
+  min-width: 140px;
 }
 
 .hint {
@@ -114,6 +125,7 @@ body {
   font-size: 14px;
   text-align: center;
   margin: 0;
+  overflow-wrap: anywhere; /* длинные сообщения сервера не вылезают за карточку */
 }
 
 .message--error {
@@ -155,4 +167,23 @@ body {
 
 .data-block p {
   margin: 6px 0;
+  overflow-wrap: anywhere;
+}
+
+/* ===== Узкие экраны ===== */
+@media (max-width: 480px) {
+  body {
+    /* Карточка прижата к верху: клавиатура не перекрывает поля */
+    align-items: flex-start;
+    padding-top: calc(16px + env(safe-area-inset-top, 0px));
+    padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .card {
+    padding: 20px;
+  }
+
+  .card h2 {
+    font-size: 1.35rem;
+  }
 }
